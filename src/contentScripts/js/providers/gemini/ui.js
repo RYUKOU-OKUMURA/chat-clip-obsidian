@@ -4,6 +4,7 @@ import { getSelectors } from './checks.js';
 // グローバル変数
 let globalTooltip = null;
 let globalObserver = null;
+const SAVE_TOOLTIP_TEXT = 'Obsidianに保存する';
 
 const GEMINI_MESSAGE_CONTENT_SELECTOR = [
   'message-content',
@@ -26,6 +27,61 @@ function inlineButtonsEnabled() {
   return window.__CHATVAULT_SHOW_SAVE_BUTTON__ !== false;
 }
 
+function ensureTooltip() {
+  if (globalTooltip?.isConnected) {
+    return globalTooltip;
+  }
+
+  globalTooltip = document.createElement('div');
+  globalTooltip.className = 'chatvault-tooltip';
+  globalTooltip.style.cssText = `
+    position: fixed;
+    left: 0;
+    top: 0;
+    transform: translate(0, 0);
+    min-width: max-content;
+    z-index: 2147483647;
+    opacity: 0;
+    visibility: hidden;
+    transition: opacity 0.16s ease;
+    pointer-events: none;
+  `;
+  globalTooltip.innerHTML = `
+    <div style="
+      background-color: #000000;
+      color: #ffffff;
+      padding: 4px 8px;
+      border-radius: 8px;
+      font-size: 12px;
+      font-weight: 600;
+      white-space: nowrap;
+      box-shadow: 0 4px 10px rgba(0, 0, 0, 0.18);
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', sans-serif;
+      line-height: 1.4;
+    ">${SAVE_TOOLTIP_TEXT}</div>
+  `;
+  document.body.appendChild(globalTooltip);
+  return globalTooltip;
+}
+
+function showTooltip(button) {
+  const tooltip = ensureTooltip();
+  const rect = button.getBoundingClientRect();
+  tooltip.style.visibility = 'visible';
+  tooltip.style.opacity = '1';
+
+  const tooltipRect = tooltip.getBoundingClientRect();
+  const left = rect.left + rect.width / 2 - tooltipRect.width / 2;
+  const top = rect.bottom + 8;
+  tooltip.style.transform = `translate(${Math.max(8, left)}px, ${top}px)`;
+}
+
+function hideTooltip() {
+  if (!globalTooltip) return;
+  globalTooltip.style.opacity = '0';
+  globalTooltip.style.visibility = 'hidden';
+}
+
 /**
  * Obsidian保存ボタンを作成する
  * @returns {HTMLElement} 保存ボタン要素
@@ -35,6 +91,8 @@ function createSaveButton() {
   button.className = 'chatvault-save-btn gemini-chatvault-save-btn';
   button.setAttribute('type', 'button');
   button.setAttribute('aria-label', 'Obsidianに保存');
+  button.setAttribute('data-tooltip', SAVE_TOOLTIP_TEXT);
+  button.setAttribute('data-state', 'closed');
   button.setAttribute('data-test-id', 'chatvault-save-button');
 
   button.style.cssText = `
@@ -70,10 +128,26 @@ function createSaveButton() {
     }
   };
 
-  button.addEventListener('mouseenter', () => setHoverState(true));
-  button.addEventListener('mouseleave', () => setHoverState(false));
-  button.addEventListener('focus', () => setHoverState(true));
-  button.addEventListener('blur', () => setHoverState(false));
+  button.addEventListener('mouseenter', () => {
+    setHoverState(true);
+    button.setAttribute('data-state', 'delayed-open');
+    showTooltip(button);
+  });
+  button.addEventListener('mouseleave', () => {
+    setHoverState(false);
+    button.setAttribute('data-state', 'closed');
+    hideTooltip();
+  });
+  button.addEventListener('focus', () => {
+    setHoverState(true);
+    button.setAttribute('data-state', 'delayed-open');
+    showTooltip(button);
+  });
+  button.addEventListener('blur', () => {
+    setHoverState(false);
+    button.setAttribute('data-state', 'closed');
+    hideTooltip();
+  });
   button.addEventListener('mousedown', () => {
     button.style.backgroundColor = 'rgba(138, 180, 248, 0.24)';
   });

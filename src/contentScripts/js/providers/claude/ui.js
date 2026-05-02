@@ -5,9 +5,66 @@ import { createLogger } from '../../../../utils/logger.js';
 const log = createLogger('Claude UI');
 
 let observer = null;
+let globalTooltip = null;
+const SAVE_TOOLTIP_TEXT = 'Obsidianに保存する';
 
 function inlineButtonsEnabled() {
   return window.__CHATVAULT_SHOW_SAVE_BUTTON__ !== false;
+}
+
+function ensureTooltip() {
+  if (globalTooltip?.isConnected) {
+    return globalTooltip;
+  }
+
+  globalTooltip = document.createElement('div');
+  globalTooltip.className = 'chatvault-tooltip';
+  globalTooltip.style.cssText = `
+    position: fixed;
+    left: 0;
+    top: 0;
+    transform: translate(0, 0);
+    min-width: max-content;
+    z-index: 2147483647;
+    opacity: 0;
+    visibility: hidden;
+    transition: opacity 0.16s ease;
+    pointer-events: none;
+  `;
+  globalTooltip.innerHTML = `
+    <div style="
+      background-color: #000000;
+      color: #ffffff;
+      padding: 4px 8px;
+      border-radius: 8px;
+      font-size: 12px;
+      font-weight: 600;
+      white-space: nowrap;
+      box-shadow: 0 4px 10px rgba(0, 0, 0, 0.18);
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', sans-serif;
+      line-height: 1.4;
+    ">${SAVE_TOOLTIP_TEXT}</div>
+  `;
+  document.body.appendChild(globalTooltip);
+  return globalTooltip;
+}
+
+function showTooltip(button) {
+  const tooltip = ensureTooltip();
+  const rect = button.getBoundingClientRect();
+  tooltip.style.visibility = 'visible';
+  tooltip.style.opacity = '1';
+
+  const tooltipRect = tooltip.getBoundingClientRect();
+  const left = rect.left + rect.width / 2 - tooltipRect.width / 2;
+  const top = rect.bottom + 8;
+  tooltip.style.transform = `translate(${Math.max(8, left)}px, ${top}px)`;
+}
+
+function hideTooltip() {
+  if (!globalTooltip) return;
+  globalTooltip.style.opacity = '0';
+  globalTooltip.style.visibility = 'hidden';
 }
 
 function createSaveButton() {
@@ -15,7 +72,9 @@ function createSaveButton() {
   button.className = 'chatvault-save-btn';
   button.type = 'button';
   button.setAttribute('aria-label', 'Obsidianに保存');
-  button.setAttribute('data-tooltip', 'Obsidianに保存');
+  button.setAttribute('data-tooltip', SAVE_TOOLTIP_TEXT);
+  button.setAttribute('data-test-id', 'chatvault-save-button');
+  button.setAttribute('data-state', 'closed');
   button.style.cssText = `
     background-color: transparent;
     color: rgb(120, 113, 108);
@@ -40,10 +99,22 @@ function createSaveButton() {
   button.addEventListener('mouseenter', () => {
     button.style.backgroundColor = 'rgba(0, 0, 0, 0.08)';
     button.style.color = 'rgb(68, 64, 60)';
+    button.setAttribute('data-state', 'delayed-open');
+    showTooltip(button);
   });
   button.addEventListener('mouseleave', () => {
     button.style.backgroundColor = 'transparent';
     button.style.color = 'rgb(120, 113, 108)';
+    button.setAttribute('data-state', 'closed');
+    hideTooltip();
+  });
+  button.addEventListener('focus', () => {
+    button.setAttribute('data-state', 'delayed-open');
+    showTooltip(button);
+  });
+  button.addEventListener('blur', () => {
+    button.setAttribute('data-state', 'closed');
+    hideTooltip();
   });
 
   return button;
@@ -72,6 +143,26 @@ function createFallbackActionContainer(root) {
   return wrapper;
 }
 
+function getDirectChild(container, descendant) {
+  let node = descendant;
+  while (node && node.parentElement && node.parentElement !== container) {
+    node = node.parentElement;
+  }
+  return node?.parentElement === container ? node : null;
+}
+
+function findActionBar(root, copyButton) {
+  const nearestToolbar = copyButton?.closest?.('[role="toolbar"]');
+  if (nearestToolbar && root.contains(nearestToolbar)) {
+    return nearestToolbar;
+  }
+
+  const actionBars = Array.from(root.querySelectorAll('.flex.items-stretch.justify-between, [role="toolbar"]'));
+  return actionBars.find((bar) => copyButton && bar.contains(copyButton))
+    || actionBars[0]
+    || null;
+}
+
 function addSaveButton(messageElement, createBtn) {
   try {
     if (!inlineButtonsEnabled()) {
@@ -86,9 +177,17 @@ function addSaveButton(messageElement, createBtn) {
     const button = typeof createBtn === 'function' ? createBtn() : createSaveButton();
     const selectors = getSelectors();
     const copyButton = root.querySelector(selectors.copyButton || '[data-testid="action-bar-copy"]');
-    if (copyButton?.parentElement) {
-      copyButton.parentElement.insertBefore(button, copyButton);
-      return { added: true, button, target: copyButton.parentElement };
+    if (copyButton) {
+      const actionBar = findActionBar(root, copyButton);
+      const copyAction = actionBar ? getDirectChild(actionBar, copyButton) : null;
+      if (actionBar && copyAction) {
+        actionBar.insertBefore(button, copyAction);
+        return { added: true, button, target: actionBar };
+      }
+      if (copyButton.parentElement) {
+        copyButton.parentElement.insertBefore(button, copyButton);
+        return { added: true, button, target: copyButton.parentElement };
+      }
     }
 
     const actionBar = root.querySelector('.flex.items-stretch.justify-between, [role="toolbar"]');

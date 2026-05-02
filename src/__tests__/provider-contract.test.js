@@ -1,6 +1,7 @@
 import { captureMessages as captureChatGPT } from '../contentScripts/js/providers/chatgpt/text.js';
 import { captureMessages as captureGemini, extractSingleMessage as extractGeminiSingle } from '../contentScripts/js/providers/gemini/text.js';
 import { addSaveButton as addGeminiSaveButton, createSaveButton as createGeminiSaveButton, resolveMessageElementFromButton as resolveGeminiMessageFromButton } from '../contentScripts/js/providers/gemini/ui.js';
+import { addSaveButton as addClaudeSaveButton, createSaveButton as createClaudeSaveButton } from '../contentScripts/js/providers/claude/ui.js';
 
 describe('provider capture contract', () => {
   afterEach(() => {
@@ -158,6 +159,31 @@ describe('provider capture contract', () => {
     expect(saveButton).toBe(result.button);
     expect(saveButton.parentElement).toBe(buttonsContainer);
     expect(saveButton.nextElementSibling.tagName.toLowerCase()).toBe('copy-button');
+    expect(saveButton.getAttribute('data-tooltip')).toBe('Obsidianに保存する');
     expect(resolveGeminiMessageFromButton(saveButton)).toBe(message);
+  });
+
+  test('Claude save button does not inherit the copy tooltip wrapper', () => {
+    document.body.innerHTML = `
+      <div data-test-render-count>
+        <div class="font-claude-response">Claude answer</div>
+        <div role="toolbar">
+          <span aria-label="コピー" data-copy-tooltip-host>
+            <button data-testid="action-bar-copy" aria-label="コピー"></button>
+          </span>
+        </div>
+      </div>
+    `;
+
+    const root = document.querySelector('[data-test-render-count]');
+    const toolbar = document.querySelector('[role="toolbar"]');
+    const copyHost = document.querySelector('[data-copy-tooltip-host]');
+    const result = addClaudeSaveButton(root, createClaudeSaveButton);
+
+    expect(result.added).toBe(true);
+    expect(result.button.parentElement).toBe(toolbar);
+    expect(result.button.nextElementSibling).toBe(copyHost);
+    expect(result.button.getAttribute('aria-label')).toBe('Obsidianに保存');
+    expect(result.button.getAttribute('data-tooltip')).toBe('Obsidianに保存する');
   });
 });
