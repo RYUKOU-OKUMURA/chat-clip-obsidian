@@ -1,8 +1,15 @@
 /* global chrome */
 import "./App.css";
 import React, { useState, useEffect, useRef, Suspense } from "react";
-import { sanitizeRelativePath, sanitizeTitle } from "../../utils/data/validation.js";
+import { sanitizeTitle } from "../../utils/data/validation.js";
 import { queryActiveTab, getSync } from "../../utils/browser/chrome.js";
+import {
+  loadDirectoryHandle,
+  saveDirectoryHandle,
+  removeDirectoryHandle,
+  isDirectoryHandleUsable
+} from "../../utils/browser/fileSystemAccess.js";
+import { normalizeChatMode, normalizeSaveMethod } from "../../utils/chat/formatting.js";
 import { toast } from "../../utils/notifications/toast.js";
 import ChatModeSelector from "./components/ChatModeSelector";
 
@@ -14,93 +21,6 @@ const getChatServiceName = (url = "") => {
   if (url.includes("claude.ai")) return "Claude";
   if (url.includes("gemini.google.com")) return "Gemini";
   return "Unknown";
-};
-
-const normalizeMode = (mode) => {
-  if (mode === "last3" || mode === "last5") return "recent";
-  return ["single", "selection", "recent", "full"].includes(mode) ? mode : "single";
-};
-
-const normalizeSaveMethod = (method) => {
-  if (method === "advanced-uri" || method === "clipboard") return "auto";
-  return ["filesystem", "auto", "downloads"].includes(method) ? method : "filesystem";
-};
-
-const openDirectoryHandleDB = () => new Promise((resolve, reject) => {
-  const request = indexedDB.open("ChatVaultDB", 1);
-  request.onerror = () => reject(request.error);
-  request.onsuccess = () => resolve(request.result);
-  request.onupgradeneeded = (event) => {
-    const db = event.target.result;
-    if (!db.objectStoreNames.contains("handles")) {
-      db.createObjectStore("handles");
-    }
-  };
-});
-
-const loadDirectoryHandle = async () => {
-  const db = await openDirectoryHandleDB();
-  const tx = db.transaction(["handles"], "readonly");
-  const store = tx.objectStore("handles");
-  const request = store.get("vaultDirectory");
-
-  return new Promise((resolve, reject) => {
-    request.onsuccess = () => {
-      db.close();
-      resolve(request.result || null);
-    };
-    request.onerror = () => {
-      db.close();
-      reject(request.error);
-    };
-  });
-};
-
-const saveDirectoryHandle = async (handle) => {
-  const db = await openDirectoryHandleDB();
-  const tx = db.transaction(["handles"], "readwrite");
-  const store = tx.objectStore("handles");
-  await new Promise((resolve, reject) => {
-    const request = store.put(handle, "vaultDirectory");
-    request.onsuccess = () => resolve();
-    request.onerror = () => reject(request.error);
-  });
-  db.close();
-};
-
-const removeDirectoryHandle = async () => {
-  const db = await openDirectoryHandleDB();
-  const tx = db.transaction(["handles"], "readwrite");
-  const store = tx.objectStore("handles");
-  await new Promise((resolve, reject) => {
-    const request = store.delete("vaultDirectory");
-    request.onsuccess = () => resolve();
-    request.onerror = () => reject(request.error);
-  });
-  db.close();
-};
-
-const isDirectoryHandleUsable = async (handle) => {
-  if (!handle) return false;
-
-  try {
-    if (typeof handle.values === "function") {
-      for await (const _entry of handle.values()) {
-        break;
-      }
-    }
-    return true;
-  } catch (error) {
-    const message = error?.message || "";
-    if (
-      error?.name === "NotFoundError" ||
-      message.includes("could not be found") ||
-      message.includes("not be found")
-    ) {
-      return false;
-    }
-    throw error;
-  }
 };
 
 const ensurePopupDirectoryHandleIfNeeded = async (method) => {
@@ -138,71 +58,6 @@ const ensurePopupDirectoryHandleIfNeeded = async (method) => {
       throw error;
     }
   }
-};
-
-const writeMarkdownWithDirectoryHandle = async (dirHandle, content, relativePath) => {
-  if (!dirHandle) {
-    throw new Error("Vaultフォルダが未選択です。");
-  }
-
-  const safeRelativePath = sanitizeRelativePath(relativePath, "ChatVault");
-  const pathSegments = safeRelativePath.split("/").filter(Boolean);
-  const requestedFileName = pathSegments.pop();
-
-  if (!requestedFileName) {
-    throw new Error("保存ファイル名を生成できませんでした。");
-  }
-
-  let currentDir = dirHandle;
-  for (const segment of pathSegments) {
-    currentDir = await currentDir.getDirectoryHandle(segment, { create: true });
-  }
-
-  let finalFileName = requestedFileName;
-  let wasRenamed = false;
-
-  try {
-    const existingHandle = await currentDir.getFileHandle(finalFileName, { create: false });
-    const existingFile = await existingHandle.getFile();
-    const existingContent = await existingFile.text();
-
-    if (existingContent === content) {
-      return {
-        finalFileName,
-        message: `既存ファイル「${finalFileName}」と同じ内容のため、保存をスキップしました。`,
-        skipped: true
-      };
-    }
-
-    const baseName = requestedFileName.replace(/\.md$/, "");
-    let counter = 1;
-    while (true) {
-      const candidate = `${baseName}_${counter}.md`;
-      try {
-        await currentDir.getFileHandle(candidate, { create: false });
-        counter += 1;
-      } catch (_) {
-        finalFileName = candidate;
-        wasRenamed = true;
-        break;
-      }
-    }
-  } catch (_) {
-    // Original file does not exist.
-  }
-
-  const fileHandle = await currentDir.getFileHandle(finalFileName, { create: true });
-  const writable = await fileHandle.createWritable();
-  await writable.write(content);
-  await writable.close();
-
-  return {
-    finalFileName,
-    wasRenamed,
-    message: wasRenamed
-      ? `「${finalFileName}」として保存しました（重複回避のため名前を変更）`
-      : `Saved directly to your Obsidian vault: ${finalFileName}`
-  };
 };
 
 function App() {
@@ -323,7 +178,7 @@ function App() {
           setChatFolderPath(result.chatFolderPath);
         }
         if (result.defaultMode && isOnChatPage) {
-          setMode(normalizeMode(result.defaultMode));
+          setMode(normalizeChatMode(result.defaultMode));
         }
         if (result.showPreview !== undefined) {
           setShowPreview(result.showPreview);
@@ -458,17 +313,6 @@ function App() {
     });
   });
 
-  const sendRuntimeMessage = (payload) => new Promise((resolve, reject) => {
-    chrome.runtime.sendMessage(payload, (response) => {
-      const lastError = chrome.runtime.lastError;
-      if (lastError) {
-        reject(lastError);
-        return;
-      }
-      resolve(response);
-    });
-  });
-
   const saveNote = async () => {
     const actionByMode = {
       single: 'saveActive',
@@ -476,24 +320,19 @@ function App() {
       recent: 'saveLastN',
       full: 'saveAll'
     };
-    const captureActionByMode = {
-      single: 'captureActiveMessage',
-      selection: 'captureSelectedMessage',
-      recent: 'captureRecentMessages',
-      full: 'captureAllMessages'
-    };
 
-    const selectedMode = normalizeMode(mode);
+    const selectedMode = normalizeChatMode(mode);
     const action = actionByMode[selectedMode];
-    const usePopupFileSystem = saveMethod === 'filesystem' || saveMethod === 'auto';
+    const normalizedSaveMethod = normalizeSaveMethod(saveMethod);
+    const shouldEnsureFolder = normalizedSaveMethod === 'filesystem' || normalizedSaveMethod === 'auto';
 
     try {
       setSaveButtonDisabled(true);
       setNotification({ type: 'info', message: '保存中です...' });
 
-      const dirHandle = usePopupFileSystem
-        ? await ensurePopupDirectoryHandleIfNeeded(saveMethod)
-        : null;
+      if (shouldEnsureFolder) {
+        await ensurePopupDirectoryHandleIfNeeded(normalizedSaveMethod);
+      }
 
       const tabs = await queryActiveTab();
       const tab = tabs[0];
@@ -501,69 +340,10 @@ function App() {
         throw new Error('保存対象のタブを取得できませんでした');
       }
 
-      let response;
-      if (usePopupFileSystem) {
-        if (!dirHandle) {
-          throw new Error('Vaultフォルダが未選択です。');
-        }
-
-        const captureAction = captureActionByMode[selectedMode];
-        const captured = await sendTabMessage(tab.id, {
-          action: captureAction,
-          count: selectedMode === 'recent' ? messageCount : undefined
-        });
-
-        if (!captured || !captured.success) {
-          throw new Error(captured?.userMessage || captured?.error || 'チャット内容の取得に失敗しました');
-        }
-
-        const prepareAction = selectedMode === 'recent' || selectedMode === 'full'
-          ? 'prepareMultipleMessages'
-          : 'prepareSingleMessage';
-        const prepared = await sendRuntimeMessage({
-          action: prepareAction,
-          ...(selectedMode === 'recent' || selectedMode === 'full'
-            ? {
-                messages: captured.messages,
-                conversationTitle: captured.title,
-                service: captured.service || getChatServiceName(tab.url || pageInfo.url),
-                sourceUrl: tab.url,
-                messageType: selectedMode,
-                count: selectedMode === 'recent' ? messageCount : undefined
-              }
-            : {
-                ...captured,
-                sourceUrl: captured.sourceUrl || tab.url,
-                messageType: selectedMode
-              })
-        });
-
-        if (!prepared || !prepared.success) {
-          throw new Error(prepared?.error || '保存内容の準備に失敗しました');
-        }
-
-        const fsResult = await writeMarkdownWithDirectoryHandle(
-          dirHandle,
-          prepared.fullContent,
-          prepared.fullFilePath
-        );
-        response = {
-          success: true,
-          method: 'filesystem',
-          message: fsResult.message || `Saved directly to your Obsidian vault: ${fsResult.finalFileName}`,
-          filename: fsResult.finalFileName || prepared.filename,
-          path: fsResult.finalFileName && prepared.folderPath
-            ? `${prepared.folderPath}/${fsResult.finalFileName}`
-            : (fsResult.finalFileName || prepared.fullFilePath),
-          service: prepared.service,
-          title: prepared.title
-        };
-      } else {
-        response = await sendTabMessage(tab.id, {
-          action,
-          count: selectedMode === 'recent' ? messageCount : undefined
-        });
-      }
+      const response = await sendTabMessage(tab.id, {
+        action,
+        count: selectedMode === 'recent' ? messageCount : undefined
+      });
 
       if (!response || !response.success) {
         throw new Error(response?.userMessage || response?.error || '保存に失敗しました');

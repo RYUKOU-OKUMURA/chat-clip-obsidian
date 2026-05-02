@@ -1,6 +1,11 @@
 // Gemini text extraction
-import { getSelectors } from './checks.js';
+import {
+  GEMINI_CODE_PANEL_SELECTOR,
+  getSelectors
+} from './checks.js';
 import { toMarkdownIfHtml } from './markdown.js';
+import { stripServiceTitle } from '../../../../utils/chat/formatting.js';
+import { cloneWithoutSelectors } from '../shared/dom.js';
 
 function getContentElement(messageElement) {
   const selectors = getSelectors();
@@ -9,10 +14,7 @@ function getContentElement(messageElement) {
 }
 
 function cleanClone(element) {
-  const cloned = element.cloneNode(true);
-  cloned.querySelectorAll && cloned.querySelectorAll([
-    '.chatvault-save-btn',
-    '.chatvault-inline-actions',
+  return cloneWithoutSelectors(element, [
     '.buttons-container-v2',
     '[data-test-id="copy-button"]',
     '[data-test-id="share-and-export-menu-button"]',
@@ -23,11 +25,12 @@ function cleanClone(element) {
     'copy-button',
     'button',
     'mat-icon'
-  ].join(', ')).forEach(el => el.remove());
-  return cloned;
+  ]);
 }
 
 function resolveCaptureRoot(element) {
+  if (element.closest?.(GEMINI_CODE_PANEL_SELECTOR)) return element.closest(GEMINI_CODE_PANEL_SELECTOR);
+  if (element.matches?.(GEMINI_CODE_PANEL_SELECTOR)) return element;
   const markdownPanel = element.closest?.('[id^="model-response-message-content"], [inline-copy-host].markdown-main-panel');
   if (markdownPanel) return markdownPanel;
   if (element.matches?.('[id^="model-response-message-content"], [inline-copy-host].markdown-main-panel')) return element;
@@ -62,7 +65,7 @@ export function extractSingleMessage(messageElement) {
     const raw = html || (cloned.textContent || '').trim();
     
     // code-immersive-panelの場合は特別な処理
-    const codeImmersivePanel = messageElement.closest('code-immersive-panel');
+    const codeImmersivePanel = messageElement.closest(GEMINI_CODE_PANEL_SELECTOR);
     if (codeImmersivePanel) {
       return extractCodeImmersivePanelContent(codeImmersivePanel);
     }
@@ -83,9 +86,7 @@ export function extractSingleMessage(messageElement) {
       }
     }
 
-    const title = document.title
-      .replace(' | Gemini', '')
-      .replace(' - Gemini', '');
+    const title = stripServiceTitle(document.title, 'gemini');
 
     return { role, content, title };
   } catch (_) {
@@ -102,9 +103,7 @@ export function extractSingleMessage(messageElement) {
       }
     }
     
-    const title = document.title
-      .replace(' | Gemini', '')
-      .replace(' - Gemini', '');
+    const title = stripServiceTitle(document.title, 'gemini');
       
     return { role, content: text, title };
   }
@@ -113,8 +112,15 @@ export function extractSingleMessage(messageElement) {
 export function captureMessages(mode, count = null) {
   const selectors = getSelectors();
   
-  // 通常のメッセージを取得
-  const normalMessages = getCaptureElements().map((msg) => {
+  const allMessages = getCaptureElements().map((msg) => {
+    if (msg.matches?.(selectors.codePanel || GEMINI_CODE_PANEL_SELECTOR)) {
+      const result = extractCodeImmersivePanelContent(msg);
+      return {
+        speaker: 'Assistant',
+        content: result.content
+      };
+    }
+
     const contentEl = getContentElement(msg);
     
     // ロールを判定
@@ -135,18 +141,6 @@ export function captureMessages(mode, count = null) {
       content: html ? toMarkdownIfHtml(html) : (cloned?.textContent?.trim() || '')
     };
   });
-  
-  // code-immersive-panelのメッセージを取得
-  const codeImmersiveMessages = Array.from(document.querySelectorAll('code-immersive-panel')).map((panel) => {
-    const result = extractCodeImmersivePanelContent(panel);
-    return {
-      speaker: 'Assistant',
-      content: result.content
-    };
-  });
-  
-  // 両方のメッセージを結合
-  const allMessages = [...normalMessages, ...codeImmersiveMessages];
 
   let messages = allMessages;
   if (mode === 'recent' && count) {
@@ -157,9 +151,7 @@ export function captureMessages(mode, count = null) {
     throw new Error('無効なキャプチャモード: ' + mode);
   }
 
-  const title = document.title
-    .replace(' | Gemini', '')
-    .replace(' - Gemini', '');
+  const title = stripServiceTitle(document.title, 'gemini');
 
   return { success: true, messages, title, service: 'gemini' };
 }
@@ -301,9 +293,7 @@ function extractCodeImmersivePanelContent(codeImmersivePanel) {
     const formattedCode = `\`\`\`${language}\n${codeContent}\n\`\`\``;
     
     // ページタイトルを取得
-    const pageTitle = document.title
-      .replace(' | Gemini', '')
-      .replace(' - Gemini', '');
+    const pageTitle = stripServiceTitle(document.title, 'gemini');
     
     return {
       role: 'assistant',
@@ -315,9 +305,7 @@ function extractCodeImmersivePanelContent(codeImmersivePanel) {
     
     // フォールバック: 基本的なテキスト抽出
     const fallbackContent = codeImmersivePanel.textContent || '';
-    const pageTitle = document.title
-      .replace(' | Gemini', '')
-      .replace(' - Gemini', '');
+    const pageTitle = stripServiceTitle(document.title, 'gemini');
     
     return {
       role: 'assistant',

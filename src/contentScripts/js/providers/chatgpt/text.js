@@ -1,6 +1,8 @@
 // ChatGPT text extraction
 import { getSelectors } from './checks.js';
 import { toMarkdownIfHtml } from './markdown.js';
+import { stripServiceTitle } from '../../../../utils/chat/formatting.js';
+import { cloneWithoutSelectors } from '../shared/dom.js';
 
 function getContentElement(messageElement) {
   const selectors = getSelectors();
@@ -9,15 +11,11 @@ function getContentElement(messageElement) {
 }
 
 function cleanClone(element) {
-  const cloned = element.cloneNode(true);
-  cloned.querySelectorAll && cloned.querySelectorAll([
-    '.chatvault-save-btn',
-    '.chatvault-inline-actions',
+  return cloneWithoutSelectors(element, [
     '[data-testid="turn-actions"]',
     '[data-testid="copy-turn-action-button"]',
     'button'
-  ].join(', ')).forEach(el => el.remove());
-  return cloned;
+  ]);
 }
 
 function resolveCaptureRoot(element) {
@@ -53,10 +51,7 @@ export function extractSingleMessage(messageElement) {
     }
     const isUser = roleAttr === 'user';
     const role = isUser ? 'user' : 'assistant';
-    const title = document.title
-      .replace(' | Claude', '')
-      .replace(' - ChatGPT', '')
-      .replace(' | ChatGPT', '');
+    const title = stripServiceTitle(document.title, 'chatgpt');
 
     return { role, content, title };
   } catch (_) {
@@ -68,7 +63,7 @@ export function extractSingleMessage(messageElement) {
     }
     const isUser = roleAttr === 'user';
     const role = isUser ? 'user' : 'assistant';
-    const title = document.title.replace(' | ChatGPT', '').replace(' - ChatGPT', '');
+    const title = stripServiceTitle(document.title, 'chatgpt');
     return { role, content: text, title };
   }
 }
@@ -96,10 +91,7 @@ export function captureMessages(mode, count = null) {
     throw new Error('無効なキャプチャモード: ' + mode);
   }
 
-  const title = document.title
-    .replace(' | Claude', '')
-    .replace(' - ChatGPT', '')
-    .replace(' | ChatGPT', '');
+  const title = stripServiceTitle(document.title, 'chatgpt');
 
   return { success: true, messages, title, service: 'chatgpt' };
 }

@@ -1,4 +1,5 @@
 import { captureMessages as captureChatGPT } from '../contentScripts/js/providers/chatgpt/text.js';
+import { addSaveButton as addChatGPTSaveButton, createSaveButton as createChatGPTSaveButton, resolveMessageElementFromButton as resolveChatGPTMessageFromButton } from '../contentScripts/js/providers/chatgpt/ui.js';
 import { captureMessages as captureGemini, extractSingleMessage as extractGeminiSingle } from '../contentScripts/js/providers/gemini/text.js';
 import { addSaveButton as addGeminiSaveButton, createSaveButton as createGeminiSaveButton, resolveMessageElementFromButton as resolveGeminiMessageFromButton } from '../contentScripts/js/providers/gemini/ui.js';
 import { addSaveButton as addClaudeSaveButton, createSaveButton as createClaudeSaveButton } from '../contentScripts/js/providers/claude/ui.js';
@@ -44,6 +45,55 @@ describe('provider capture contract', () => {
     expect(all.messages).toEqual([
       { speaker: 'Assistant', content: 'Final answer' }
     ]);
+  });
+
+  test('ChatGPT captureMessages removes action buttons and preserves code blocks', () => {
+    document.title = 'Code Review - ChatGPT';
+    document.body.innerHTML = `
+      <article data-message-author-role="assistant" data-message-id="a1">
+        <div class="markdown">
+          <p>Use this helper.</p>
+          <pre><code class="language-js">console.log("ok");</code></pre>
+          <div data-testid="turn-actions">
+            <button data-testid="copy-turn-action-button">Copy</button>
+            <button class="chatvault-save-btn">Save</button>
+          </div>
+        </div>
+      </article>
+    `;
+
+    const all = captureChatGPT('all');
+
+    expect(all.messages).toHaveLength(1);
+    expect(all.messages[0].content).toContain('Use this helper.');
+    expect(all.messages[0].content).toContain('```js');
+    expect(all.messages[0].content).toContain('console.log("ok");');
+    expect(all.messages[0].content).not.toContain('Copy');
+    expect(all.messages[0].content).not.toContain('Save');
+  });
+
+  test('ChatGPT save button binds to assistant message inside a conversation turn wrapper', () => {
+    document.body.innerHTML = `
+      <article data-testid="conversation-turn-1">
+        <div data-message-author-role="user" data-message-id="u1">
+          <div class="whitespace-pre-wrap">Question</div>
+        </div>
+        <div data-message-author-role="assistant" data-message-id="a1">
+          <div class="markdown"><p>Answer</p></div>
+          <div data-testid="turn-actions">
+            <button data-testid="copy-turn-action-button">Copy</button>
+          </div>
+        </div>
+      </article>
+    `;
+
+    const turn = document.querySelector('[data-testid="conversation-turn-1"]');
+    const assistant = document.querySelector('[data-message-author-role="assistant"]');
+    const result = addChatGPTSaveButton(turn, createChatGPTSaveButton);
+
+    expect(result.added).toBe(true);
+    expect(result.button.__chatvaultMessageElement).toBe(assistant);
+    expect(resolveChatGPTMessageFromButton(result.button)).toBe(assistant);
   });
 
   test('Gemini captureMessages returns all and recent messages with service', () => {
@@ -124,6 +174,30 @@ describe('provider capture contract', () => {
     expect(all.messages).toEqual([
       { speaker: 'Assistant', content: 'Gemini body\n\n### Pattern 1' }
     ]);
+  });
+
+  test('Gemini captureMessages preserves DOM order for code immersive panels', () => {
+    document.title = 'Research - Gemini';
+    document.body.innerHTML = `
+      <div class="user-message">Question</div>
+      <code-immersive-panel>
+        <h2 class="title-text">JavaScript</h2>
+        <div data-test-id="code-editor">
+          <textarea>const value = 1;</textarea>
+        </div>
+      </code-immersive-panel>
+      <message-content><div class="markdown"><p>Follow up answer</p></div></message-content>
+    `;
+
+    const all = captureGemini('all');
+
+    expect(all.success).toBe(true);
+    expect(all.messages).toHaveLength(3);
+    expect(all.messages[0]).toEqual({ speaker: 'User', content: 'Question' });
+    expect(all.messages[1].speaker).toBe('Assistant');
+    expect(all.messages[1].content).toContain('```javascript');
+    expect(all.messages[1].content).toContain('const value = 1;');
+    expect(all.messages[2]).toEqual({ speaker: 'Assistant', content: 'Follow up answer' });
   });
 
   test('Gemini save button inserts into native buttons-container before copy-button host', () => {

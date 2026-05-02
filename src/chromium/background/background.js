@@ -4,39 +4,25 @@ import { toBase64Utf8 } from '../../utils/data/encoding.js';
 import { buildObsidianNewUri } from '../../utils/browser/obsidian.js';
 import { sanitizeForFilename, sanitizeRelativePath } from '../../utils/data/validation.js';
 import { createTab, openUrlWithAutoClose, getSync } from '../../utils/browser/chrome.js';
+import {
+  loadDirectoryHandle,
+  removeDirectoryHandle,
+  isDirectoryHandleUsable,
+  isMissingDirectoryError,
+  writeMarkdownWithDirectoryHandle
+} from '../../utils/browser/fileSystemAccess.js';
+import {
+  formatMessagesAsMarkdown,
+  getServiceLabel,
+  normalizeChatMode,
+  normalizeMarkdown,
+  normalizeSaveMethod
+} from '../../utils/chat/formatting.js';
 import { createLogger } from '../../utils/logger.js';
 
 const log = createLogger('ChatVault Background');
 const SHORT_URI_CONTENT_LIMIT = 6000;
 const DEFAULT_CHAT_NOTE_FORMAT = '# {title}\n\n{content}';
-
-const SERVICE_LABELS = {
-  chatgpt: 'ChatGPT',
-  claude: 'Claude',
-  gemini: 'Gemini'
-};
-
-function getServiceLabel(service) {
-  return SERVICE_LABELS[String(service || '').toLowerCase()] || service || 'ChatVault';
-}
-
-function normalizeSaveMethod(method) {
-  if (method === 'advanced-uri' || method === 'clipboard') return 'auto';
-  return ['filesystem', 'auto', 'downloads'].includes(method) ? method : 'filesystem';
-}
-
-function normalizeMode(mode) {
-  if (mode === 'last3' || mode === 'last5') return 'recent';
-  return ['single', 'selection', 'recent', 'full', 'all'].includes(mode) ? (mode === 'all' ? 'full' : mode) : 'single';
-}
-
-function normalizeMarkdown(content) {
-  return String(content || '')
-    .replace(/\r\n/g, '\n')
-    .replace(/\r/g, '\n')
-    .replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F-\u009F]/g, '')
-    .trim();
-}
 
 function renderTemplate(template, values) {
   return String(template || '')
@@ -122,42 +108,6 @@ function buildFolderPath(template, { serviceLabel, dateStr, sanitizedTitle, mode
   return sanitizeRelativePath(rendered, 'ChatVault');
 }
 
-async function openDirectoryHandleDB() {
-  if (typeof indexedDB === 'undefined') {
-    throw new Error('IndexedDB is not available in the extension service worker');
-  }
-
-  return new Promise((resolve, reject) => {
-    const request = indexedDB.open('ChatVaultDB', 1);
-    request.onerror = () => reject(request.error);
-    request.onsuccess = () => resolve(request.result);
-    request.onupgradeneeded = (event) => {
-      const db = event.target.result;
-      if (!db.objectStoreNames.contains('handles')) {
-        db.createObjectStore('handles');
-      }
-    };
-  });
-}
-
-async function loadExtensionDirectoryHandle() {
-  const db = await openDirectoryHandleDB();
-  const tx = db.transaction(['handles'], 'readonly');
-  const store = tx.objectStore('handles');
-  const request = store.get('vaultDirectory');
-
-  return new Promise((resolve, reject) => {
-    request.onsuccess = () => {
-      db.close();
-      resolve(request.result || null);
-    };
-    request.onerror = () => {
-      db.close();
-      reject(request.error);
-    };
-  });
-}
-
 async function ensureExtensionDirectoryPermission(dirHandle) {
   if (!dirHandle) {
     throw new Error('Vaultフォルダが未設定です。OptionsでObsidian Vaultフォルダを選択してください。');
@@ -168,81 +118,21 @@ async function ensureExtensionDirectoryPermission(dirHandle) {
   throw new Error('Vaultフォルダの書き込み権限がありません。PopupまたはOptionsでVaultフォルダを再選択してください。');
 }
 
-async function writeMarkdownWithDirectoryHandle(dirHandle, content, relativePath) {
-  const safeRelativePath = sanitizeRelativePath(relativePath, 'ChatVault');
-  const pathSegments = safeRelativePath.split('/').filter(Boolean);
-  const requestedFileName = pathSegments.pop();
-
-  if (!requestedFileName) {
-    throw new Error('保存ファイル名を生成できませんでした。');
-  }
-
-  let currentDir = dirHandle;
-  for (const segment of pathSegments) {
-    currentDir = await currentDir.getDirectoryHandle(segment, { create: true });
-  }
-
-  let finalFileName = requestedFileName;
-  let wasRenamed = false;
-
-  try {
-    const existingHandle = await currentDir.getFileHandle(finalFileName, { create: false });
-    const existingFile = await existingHandle.getFile();
-    const existingContent = await existingFile.text();
-
-    if (existingContent === content) {
-      return {
-        success: true,
-        method: 'filesystem',
-        finalFileName,
-        originalFileName: requestedFileName,
-        isDuplicate: true,
-        skipped: true,
-        message: `既存ファイル「${finalFileName}」と同じ内容のため、保存をスキップしました。`
-      };
-    }
-
-    const baseName = requestedFileName.replace(/\.md$/, '');
-    let counter = 1;
-    while (true) {
-      const candidate = `${baseName}_${counter}.md`;
-      try {
-        await currentDir.getFileHandle(candidate, { create: false });
-        counter += 1;
-      } catch (_) {
-        finalFileName = candidate;
-        wasRenamed = true;
-        break;
-      }
-    }
-  } catch (_) {
-    // Original file does not exist.
-  }
-
-  const fileHandle = await currentDir.getFileHandle(finalFileName, { create: true });
-  const writable = await fileHandle.createWritable();
-  await writable.write(content);
-  await writable.close();
-
-  const result = {
-    success: true,
-    method: 'filesystem',
-    finalFileName,
-    originalFileName: requestedFileName
-  };
-
-  if (wasRenamed) {
-    result.wasRenamed = true;
-    result.message = `「${finalFileName}」として保存しました（重複回避のため名前を変更）`;
-  }
-
-  return result;
-}
-
 async function saveViaExtensionFileSystem(content, relativePath) {
-  const dirHandle = await loadExtensionDirectoryHandle();
-  await ensureExtensionDirectoryPermission(dirHandle);
-  return writeMarkdownWithDirectoryHandle(dirHandle, content, relativePath);
+  const dirHandle = await loadDirectoryHandle();
+  try {
+    await ensureExtensionDirectoryPermission(dirHandle);
+    if (!(await isDirectoryHandleUsable(dirHandle))) {
+      await removeDirectoryHandle();
+      throw new Error('保存先フォルダが見つかりません。Vaultフォルダを再選択してください。');
+    }
+    return await writeMarkdownWithDirectoryHandle(dirHandle, content, relativePath);
+  } catch (error) {
+    if (isMissingDirectoryError(error)) {
+      await removeDirectoryHandle();
+    }
+    throw error;
+  }
 }
 
 function sendToTab(tabId, payload) {
@@ -283,7 +173,51 @@ async function saveViaDownloadAPI(content, filename, folderPath) {
   const dataUrl = `data:text/markdown;charset=utf-8;base64,${base64Content}`;
   const safeFolderPath = folderPath ? sanitizeRelativePath(folderPath, 'ChatVault') : '';
   const downloadPath = safeFolderPath ? `${safeFolderPath}/${filename}` : filename;
-  const downloadId = await new Promise((resolve, reject) => {
+
+  return new Promise((resolve, reject) => {
+    let downloadId = null;
+    let settled = false;
+    const completedById = new Map();
+
+    const cleanup = () => {
+      clearTimeout(timeout);
+      chrome.downloads.onChanged.removeListener(listener);
+    };
+
+    const finish = (result) => {
+      if (settled) return;
+      settled = true;
+      cleanup();
+      if (result.success) {
+        resolve({ success: true, downloadId: result.downloadId });
+      } else {
+        reject(result.error);
+      }
+    };
+
+    const listener = (delta) => {
+      const state = delta.state?.current;
+      if (state !== 'complete' && state !== 'interrupted') return;
+
+      const result = state === 'complete'
+        ? { success: true, downloadId: delta.id }
+        : { success: false, error: new Error(delta.error?.current || 'Download interrupted') };
+
+      if (downloadId === null) {
+        completedById.set(delta.id, result);
+        return;
+      }
+
+      if (delta.id === downloadId) {
+        finish(result);
+      }
+    };
+
+    const timeout = setTimeout(() => {
+      finish({ success: false, error: new Error('Download timeout') });
+    }, 30000);
+
+    chrome.downloads.onChanged.addListener(listener);
     chrome.downloads.download({
       url: dataUrl,
       filename: downloadPath,
@@ -291,33 +225,14 @@ async function saveViaDownloadAPI(content, filename, folderPath) {
       conflictAction: 'uniquify'
     }, (id) => {
       if (chrome.runtime.lastError) {
-        reject(new Error(chrome.runtime.lastError.message));
+        finish({ success: false, error: new Error(chrome.runtime.lastError.message) });
         return;
       }
-      resolve(id);
-    });
-  });
-
-  return new Promise((resolve, reject) => {
-    const timeout = setTimeout(() => {
-      chrome.downloads.onChanged.removeListener(listener);
-      reject(new Error('Download timeout'));
-    }, 30000);
-
-    const listener = (delta) => {
-      if (delta.id !== downloadId) return;
-      if (delta.state?.current === 'complete') {
-        clearTimeout(timeout);
-        chrome.downloads.onChanged.removeListener(listener);
-        resolve({ success: true, downloadId });
-      } else if (delta.state?.current === 'interrupted') {
-        clearTimeout(timeout);
-        chrome.downloads.onChanged.removeListener(listener);
-        reject(new Error(delta.error?.current || 'Download interrupted'));
+      downloadId = id;
+      if (completedById.has(downloadId)) {
+        finish(completedById.get(downloadId));
       }
-    };
-
-    chrome.downloads.onChanged.addListener(listener);
+    });
   });
 }
 
@@ -332,7 +247,7 @@ async function prepareMarkdownSave({ markdown, service, title, sourceUrl, mode, 
   ]);
 
   const serviceLabel = getServiceLabel(service);
-  const normalizedMode = normalizeMode(mode || metadata.type);
+  const normalizedMode = normalizeChatMode(mode || metadata.type);
   const saved = new Date().toISOString();
   const dateStr = saved.split('T')[0];
   const noteTitle = title || `${serviceLabel} Chat - ${dateStr}`;
@@ -501,21 +416,10 @@ async function saveMarkdownToObsidian({ markdown, service, title, sourceUrl, mod
   }
 }
 
-function formatMessagesAsMarkdown(messages) {
-  return [
-    ...messages.flatMap((msg, index) => {
-      const speaker = msg.speaker || (msg.role === 'user' ? 'User' : 'Assistant');
-      const content = normalizeMarkdown(msg.content || '');
-      const separator = index < messages.length - 1 ? ['','---',''] : [''];
-      return [`### ${speaker}`, '', content, ...separator];
-    })
-  ].join('\n');
-}
-
 async function handleSaveMessage(request, sender, sendResponse) {
   try {
     const isSelection = request.metadata?.type === 'selection' || request.messageType === 'selection';
-    const mode = normalizeMode(isSelection ? 'selection' : request.messageType || 'single');
+    const mode = normalizeChatMode(isSelection ? 'selection' : request.messageType || 'single');
     const response = await saveMarkdownToObsidian({
       markdown: request.messageContent || '',
       service: request.service,
@@ -540,7 +444,7 @@ async function handleSaveMultipleMessages(request, sender, sendResponse) {
       return;
     }
 
-    const mode = normalizeMode(request.messageType || request.mode || 'full');
+    const mode = normalizeChatMode(request.messageType || request.mode || 'full');
     const body = formatMessagesAsMarkdown(messages);
 
     const response = await saveMarkdownToObsidian({
@@ -576,7 +480,7 @@ async function handleSaveSelection(request, sender, sendResponse) {
 async function handlePrepareMessage(request, sender, sendResponse) {
   try {
     const isSelection = request.metadata?.type === 'selection' || request.messageType === 'selection';
-    const mode = normalizeMode(isSelection ? 'selection' : request.messageType || 'single');
+    const mode = normalizeChatMode(isSelection ? 'selection' : request.messageType || 'single');
     const response = await prepareMarkdownSave({
       markdown: request.messageContent || '',
       service: request.service,
@@ -600,7 +504,7 @@ async function handlePrepareMultipleMessages(request, sender, sendResponse) {
       return;
     }
 
-    const mode = normalizeMode(request.messageType || request.mode || 'full');
+    const mode = normalizeChatMode(request.messageType || request.mode || 'full');
     const response = await prepareMarkdownSave({
       markdown: formatMessagesAsMarkdown(messages),
       service: request.service,

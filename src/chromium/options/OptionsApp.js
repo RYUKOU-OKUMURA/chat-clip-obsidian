@@ -2,16 +2,8 @@
 import React, { useState, useEffect } from "react";
 import { toast } from "../../utils/notifications/toast.js";
 import { getSync } from "../../utils/browser/chrome.js";
-
-const normalizeMode = (mode) => {
-  if (mode === "last3" || mode === "last5") return "recent";
-  return ["single", "selection", "recent", "full"].includes(mode) ? mode : "single";
-};
-
-const normalizeSaveMethod = (method) => {
-  if (method === "advanced-uri" || method === "clipboard") return "auto";
-  return ["filesystem", "auto", "downloads"].includes(method) ? method : "filesystem";
-};
+import { saveDirectoryHandle } from "../../utils/browser/fileSystemAccess.js";
+import { normalizeChatMode, normalizeSaveMethod } from "../../utils/chat/formatting.js";
 
 const DEFAULT_CHAT_NOTE_FORMAT = "# {title}\n\n{content}";
 
@@ -104,7 +96,7 @@ const OptionsApp = () => {
           setShowChatSettings(result.showChatSettings);
         }
         if (result.defaultMode) {
-          setDefaultMode(normalizeMode(result.defaultMode));
+          setDefaultMode(normalizeChatMode(result.defaultMode));
         }
         if (result.showSaveButton !== undefined) {
           setShowSaveButton(result.showSaveButton);
@@ -162,8 +154,7 @@ const OptionsApp = () => {
       });
 
       // Store the directory handle in IndexedDB for persistence
-      const db = await openDB();
-      await saveDirectoryHandle(db, dirHandle);
+      await saveDirectoryHandle(dirHandle);
 
     } catch (err) {
       if (err.name === 'AbortError') {
@@ -173,34 +164,6 @@ const OptionsApp = () => {
         toast.show('フォルダ選択エラー: ' + err.message, 'error');
       }
     }
-  };
-
-  // IndexedDB functions for storing directory handle
-  const openDB = () => {
-    return new Promise((resolve, reject) => {
-      const request = indexedDB.open('ChatVaultDB', 1);
-
-      request.onerror = () => reject(request.error);
-      request.onsuccess = () => resolve(request.result);
-
-      request.onupgradeneeded = (event) => {
-        const db = event.target.result;
-        if (!db.objectStoreNames.contains('handles')) {
-          db.createObjectStore('handles');
-        }
-      };
-    });
-  };
-
-  const saveDirectoryHandle = async (db, handle) => {
-    const tx = db.transaction(['handles'], 'readwrite');
-    const store = tx.objectStore('handles');
-    await new Promise((resolve, reject) => {
-      const request = store.put(handle, 'vaultDirectory');
-      request.onsuccess = () => resolve();
-      request.onerror = () => reject(request.error);
-    });
-    db.close();
   };
 
   const handleSave = () => {
@@ -236,7 +199,7 @@ const OptionsApp = () => {
         folderPath: folder,
         // ChatVault settings
         showChatSettings: showChatSettings,
-        defaultMode: normalizeMode(defaultMode),
+        defaultMode: normalizeChatMode(defaultMode),
         showSaveButton: showSaveButton,
         chatFolderPath: normalizedChatFolderPath,
         chatFolderPathExplicit: Boolean(normalizedChatFolderPath),

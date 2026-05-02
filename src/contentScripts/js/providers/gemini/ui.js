@@ -1,27 +1,17 @@
 // Gemini UI-related helpers (button placement, etc.)
-import { getSelectors } from './checks.js';
+import {
+  GEMINI_ACTION_CONTAINER_SELECTOR,
+  GEMINI_COPY_BUTTON_SELECTOR,
+  GEMINI_MESSAGE_CONTENT_SELECTOR,
+  GEMINI_RESPONSE_SCOPE_SELECTOR,
+  getSelectors
+} from './checks.js';
+import { createFallbackActionContainer, getDirectChild, isVisibleElement } from '../shared/dom.js';
 
 // グローバル変数
 let globalTooltip = null;
 let globalObserver = null;
 const SAVE_TOOLTIP_TEXT = 'Obsidianに保存する';
-
-const GEMINI_MESSAGE_CONTENT_SELECTOR = [
-  'message-content',
-  '[id^="message-content-id-"]',
-  '[id^="model-response-message-content"]',
-  '[inline-copy-host].markdown-main-panel',
-  '.model-response-text'
-].join(', ');
-
-const GEMINI_RESPONSE_SCOPE_SELECTOR = [
-  'model-response',
-  'response-container',
-  '.response-container',
-  '.conversation-container',
-  '.conversation-turn',
-  '.response-container-content'
-].join(', ');
 
 function inlineButtonsEnabled() {
   return window.__CHATVAULT_SHOW_SAVE_BUTTON__ !== false;
@@ -533,22 +523,6 @@ function addSaveButton(messageElement, createSaveButton) {
   return { added: true, button, target: wrapper };
 }
 
-function createFallbackActionContainer(messageElement) {
-  let wrapper = messageElement.querySelector(':scope > .chatvault-inline-actions');
-  if (!wrapper) {
-    wrapper = document.createElement('div');
-    wrapper.className = 'chatvault-inline-actions';
-    wrapper.style.cssText = `
-      display: flex;
-      justify-content: flex-end;
-      gap: 4px;
-      margin-top: 6px;
-    `;
-    messageElement.appendChild(wrapper);
-  }
-  return wrapper;
-}
-
 function attachMessageRootToButton(button, root) {
   button.__chatvaultMessageElement = root;
   const responseId = getResponseIdFromMessage(root);
@@ -575,16 +549,8 @@ function findExistingSaveButton(root, actionContainer, scope) {
     || null;
 }
 
-function getDirectChild(container, descendant) {
-  let node = descendant;
-  while (node && node.parentElement && node.parentElement !== container) {
-    node = node.parentElement;
-  }
-  return node?.parentElement === container ? node : null;
-}
-
 function insertButtonIntoActionContainer(button, buttonContainer) {
-  const copyButton = buttonContainer.querySelector('[data-test-id="copy-button"]');
+  const copyButton = buttonContainer.querySelector(GEMINI_COPY_BUTTON_SELECTOR);
   const copyHost = copyButton?.closest?.('copy-button') || copyButton;
   const anchor = copyHost ? getDirectChild(buttonContainer, copyHost) : null;
 
@@ -601,14 +567,6 @@ function cleanupEmptyFallbackContainers(root) {
       wrapper.remove();
     }
   });
-}
-
-function isVisibleElement(element) {
-  if (!element || !(element instanceof HTMLElement)) return false;
-  const style = window.getComputedStyle ? window.getComputedStyle(element) : null;
-  if (style && (style.display === 'none' || style.visibility === 'hidden')) return false;
-  const rect = element.getBoundingClientRect?.();
-  return !rect || rect.width > 0 || rect.height > 0;
 }
 
 function hasContent(element) {
@@ -653,7 +611,7 @@ function findMessageByResponseId(responseId) {
 
 function findActionContainerByResponseId(responseId) {
   if (!responseId) return null;
-  return Array.from(document.querySelectorAll('.buttons-container-v2'))
+  return Array.from(document.querySelectorAll(GEMINI_ACTION_CONTAINER_SELECTOR))
     .find((container) => getResponseIdFromActionContainer(container) === responseId) || null;
 }
 
@@ -666,9 +624,9 @@ function isActionContainerForMessage(container, messageRoot) {
 
 function findActionContainerInElement(element, messageRoot) {
   if (!element) return null;
-  const container = element.matches?.('.buttons-container-v2')
+  const container = element.matches?.(GEMINI_ACTION_CONTAINER_SELECTOR)
     ? element
-    : element.querySelector?.('.buttons-container-v2');
+    : element.querySelector?.(GEMINI_ACTION_CONTAINER_SELECTOR);
   return isActionContainerForMessage(container, messageRoot) ? container : null;
 }
 
@@ -714,12 +672,12 @@ function findMessageInScope(scope) {
   }
   candidates.push(...Array.from(scope.querySelectorAll?.(selectors.container) || []));
   return candidates.find((candidate) => (
-    candidate.matches?.('[id^="model-response-message-content"], [inline-copy-host].markdown-main-panel, message-content') &&
+    candidate.matches?.(GEMINI_MESSAGE_CONTENT_SELECTOR) &&
     isVisibleElement(candidate) &&
     hasContent(candidate)
   ))
     || candidates.find((candidate) => (
-      candidate.matches?.('[id^="model-response-message-content"], [inline-copy-host].markdown-main-panel, message-content') &&
+      candidate.matches?.(GEMINI_MESSAGE_CONTENT_SELECTOR) &&
       hasContent(candidate)
     ))
     || candidates.find((candidate) => isVisibleElement(candidate) && hasContent(candidate))
@@ -755,10 +713,10 @@ function resolveMessageRoot(element) {
 
   const selectors = getSelectors();
 
-  if (element.matches?.('.buttons-container-v2') || element.querySelector?.('.buttons-container-v2')) {
-    const actions = element.matches?.('.buttons-container-v2')
+  if (element.matches?.(GEMINI_ACTION_CONTAINER_SELECTOR) || element.querySelector?.(GEMINI_ACTION_CONTAINER_SELECTOR)) {
+    const actions = element.matches?.(GEMINI_ACTION_CONTAINER_SELECTOR)
       ? element
-      : element.querySelector('.buttons-container-v2');
+      : element.querySelector(GEMINI_ACTION_CONTAINER_SELECTOR);
     const nearby = findNearbyMessageFromActions(actions);
     if (nearby) return nearby;
   }
@@ -826,7 +784,7 @@ function initializeGemini(createSaveButton) {
   }
 
   // 既存メッセージの初期スキャン
-  const messages = document.querySelectorAll('.buttons-container-v2');
+  const messages = document.querySelectorAll(GEMINI_ACTION_CONTAINER_SELECTOR);
   messages.forEach(buttonContainer => {
     addSaveButton(buttonContainer.parentElement, createSaveButton);
   });
@@ -837,9 +795,9 @@ function initializeGemini(createSaveButton) {
       if (mutation.type === 'childList') {
         mutation.addedNodes.forEach((node) => {
           if (node.nodeType === Node.ELEMENT_NODE) {
-            const buttonContainers = node.matches && node.matches('.buttons-container-v2')
+            const buttonContainers = node.matches && node.matches(GEMINI_ACTION_CONTAINER_SELECTOR)
               ? [node]
-              : node.querySelectorAll ? node.querySelectorAll('.buttons-container-v2') : [];
+              : node.querySelectorAll ? node.querySelectorAll(GEMINI_ACTION_CONTAINER_SELECTOR) : [];
 
             buttonContainers.forEach(buttonContainer => {
               addSaveButton(buttonContainer.parentElement, createSaveButton);
@@ -896,7 +854,7 @@ function resolveMessageElementFromButton(btn) {
     }
     
     // 通常のボタンコンテナから開始
-    const buttonsContainer = btn.closest('.buttons-container-v2');
+    const buttonsContainer = btn.closest(GEMINI_ACTION_CONTAINER_SELECTOR);
     const responseContainer = btn.closest('.response-container');
 
     if (responseContainer) {
@@ -919,12 +877,7 @@ function resolveMessageElementFromButton(btn) {
       }
     }
 
-    // グローバルフォールバック
-    const all = document.querySelectorAll(selectors.container);
-    if (all && all.length) {
-      return all[all.length - 1];
-    }
-  } catch (_) {
+	  } catch (_) {
     // ignore
   }
   return null;

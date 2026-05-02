@@ -1,6 +1,7 @@
 // Claude UI helpers for DOM-first MVP capture.
 import { getSelectors } from './checks.js';
 import { createLogger } from '../../../../utils/logger.js';
+import { createFallbackActionContainer, getDirectChild } from '../shared/dom.js';
 
 const log = createLogger('Claude UI');
 
@@ -125,30 +126,6 @@ function getRootMessageElement(messageElement) {
   return messageElement.closest?.('[data-test-render-count]')
     || messageElement.closest?.(selectors.container)
     || messageElement;
-}
-
-function createFallbackActionContainer(root) {
-  let wrapper = root.querySelector(':scope > .chatvault-inline-actions');
-  if (!wrapper) {
-    wrapper = document.createElement('div');
-    wrapper.className = 'chatvault-inline-actions';
-    wrapper.style.cssText = `
-      display: flex;
-      justify-content: flex-end;
-      gap: 4px;
-      margin-top: 6px;
-    `;
-    root.appendChild(wrapper);
-  }
-  return wrapper;
-}
-
-function getDirectChild(container, descendant) {
-  let node = descendant;
-  while (node && node.parentElement && node.parentElement !== container) {
-    node = node.parentElement;
-  }
-  return node?.parentElement === container ? node : null;
 }
 
 function findActionBar(root, copyButton) {

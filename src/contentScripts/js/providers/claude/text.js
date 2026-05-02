@@ -2,6 +2,7 @@
 import { getSelectors } from './checks.js';
 import { toMarkdownIfHtml } from '../../../../utils/markdown.js';
 import { createLogger } from '../../../../utils/logger.js';
+import { stripServiceTitle } from '../../../../utils/chat/formatting.js';
 
 const log = createLogger('Claude Text DOM');
 
@@ -83,11 +84,7 @@ function isVisibleElement(element) {
 }
 
 function getTitle() {
-  const title = (document.title || '').trim()
-    .replace(/\s*[|–-]\s*Claude(?:\.ai)?\s*$/i, '')
-    .trim();
-
-  return title || DEFAULT_TITLE;
+  return stripServiceTitle(document.title, 'claude', DEFAULT_TITLE);
 }
 
 function getTopLevelMessageDescendants(root) {

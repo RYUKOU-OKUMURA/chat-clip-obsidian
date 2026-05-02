@@ -6,6 +6,7 @@
 import { toast } from '../../utils/notifications/toast.js';
 import { createLogger } from '../../utils/logger.js';
 import { toUserMessage } from '../../utils/messages.js';
+import { stripServiceTitle } from '../../utils/chat/formatting.js';
 import { detectService } from './inject/service.js';
 import { getProvider } from './providers/ProviderFactory.js';
 import { copyToClipboard } from './inject/clipboard.js';
@@ -336,6 +337,24 @@ console.info('[ChatVault Content] コンテンツスクリプトを読み込み�
     }
   }
 
+  async function captureActiveMessageData() {
+    const result = await handleCaptureMessages('recent', 1);
+    const message = result?.messages?.[result.messages.length - 1];
+    if (!result?.success || !message) {
+      throw new Error(result?.error || 'ページにメッセージが見つかりませんでした');
+    }
+
+    const speaker = message.speaker || (message.role === 'user' ? 'User' : 'Assistant');
+    return {
+      success: true,
+      service: result.service || service,
+      messageContent: `### ${speaker}\n\n${message.content || ''}`,
+      messageType: 'single',
+      conversationTitle: result.title || stripServiceTitle(document.title, service),
+      sourceUrl: window.location.href
+    };
+  }
+
 
 
   // ポップアップとバックグラウンドスクリプトからのメッセージをリッスン
@@ -362,33 +381,25 @@ console.info('[ChatVault Content] コンテンツスクリプトを読み込み�
       });
       return; // synchronous response
     } else if (request.action === 'captureActiveMessage') {
-      (async () => {
-        const messageElements = document.querySelectorAll(getSelectors().container);
-        if (messageElements.length > 0) {
-          const lastMessage = messageElements[messageElements.length - 1];
-          const messageData = await extractMessageData(lastMessage);
-          sendResponse({
-            success: true,
-            ...messageData,
-            sourceUrl: window.location.href
-          });
-        } else {
-          sendResponse({ success: false, error: 'ページにメッセージが見つかりませんでした' });
-        }
-      })().catch((error) => sendResponse({ success: false, error: error.message }));
+      captureActiveMessageData()
+        .then(sendResponse)
+        .catch((error) => sendResponse({ success: false, error: error.message }));
       return true; // async response
     } else if (request.action === 'saveActive') {
       (async () => {
-        const messageElements = document.querySelectorAll(getSelectors().container);
-        if (messageElements.length > 0) {
-          const lastMessage = messageElements[messageElements.length - 1];
-          const response = await handleSaveClick(lastMessage);
-          sendResponse(response);
-        } else {
-          toast.show('ページにメッセージが見つかりませんでした。', 'error');
-          sendResponse({ success: false, error: 'ページにメッセージが見つかりませんでした' });
+        const messageData = await captureActiveMessageData();
+        const response = await sendRuntimeMessage({
+          action: 'saveSingleMessage',
+          ...messageData
+        });
+        if (response?.success) {
+          showSuccessMessage(response);
         }
-      })();
+        sendResponse(response);
+      })().catch((error) => {
+        showErrorMessage(error);
+        sendResponse({ success: false, error: error.message });
+      });
       return true; // async response
     } else if (request.action === 'captureSelectedMessage') {
       const selectedContent = getSelectedContent();
@@ -399,12 +410,7 @@ console.info('[ChatVault Content] コンテンツスクリプトを読み込み�
           service: service,
           messageContent: `### Selection\n\n${selectedText}`,
           messageType: 'selection',
-          conversationTitle: document.title
-            .replace(' - ChatGPT', '')
-            .replace(' | ChatGPT', '')
-            .replace(' | Claude', '')
-            .replace(' - Gemini', '')
-            .replace(' | Gemini', ''),
+          conversationTitle: stripServiceTitle(document.title, service),
           sourceUrl: window.location.href,
           metadata: {
             type: 'selection',
@@ -430,12 +436,7 @@ console.info('[ChatVault Content] コンテンツスクリプトを読み込み�
           service: service,
           messageContent: `### Selection\n\n${selectedText}`,
           messageType: 'selection',
-          conversationTitle: document.title
-            .replace(' - ChatGPT', '')
-            .replace(' | ChatGPT', '')
-            .replace(' | Claude', '')
-            .replace(' - Gemini', '')
-            .replace(' | Gemini', ''),
+          conversationTitle: stripServiceTitle(document.title, service),
           metadata: {
             type: 'selection',
             url: window.location.href,

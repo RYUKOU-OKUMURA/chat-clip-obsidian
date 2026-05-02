@@ -2,12 +2,15 @@
  * File System Access API service for direct vault writing
  * Handles saving files directly to the user's Obsidian vault
  */
+import {
+  loadDirectoryHandle,
+  saveDirectoryHandle as persistDirectoryHandle,
+  writeMarkdownWithDirectoryHandle
+} from '../../utils/browser/fileSystemAccess.js';
 
 class FileSystemService {
   constructor() {
     this.directoryHandle = null;
-    this.dbName = 'ChatVaultDB';
-    this.storeName = 'handles';
   }
 
   /**
@@ -43,45 +46,16 @@ class FileSystemService {
    */
   async loadDirectoryHandle() {
     try {
-      const db = await this.openDB();
-      const tx = db.transaction([this.storeName], 'readonly');
-      const store = tx.objectStore(this.storeName);
-      const handle = await this.promisifyRequest(store.get('vaultDirectory'));
-      db.close();
-      return handle;
+      return await loadDirectoryHandle();
     } catch (error) {
       console.error('[FileSystemService] Error loading directory handle:', error);
       return null;
     }
   }
 
-  /**
-   * Open IndexedDB
-   */
-  openDB() {
-    return new Promise((resolve, reject) => {
-      const request = indexedDB.open(this.dbName, 1);
-      
-      request.onerror = () => reject(request.error);
-      request.onsuccess = () => resolve(request.result);
-      
-      request.onupgradeneeded = (event) => {
-        const db = event.target.result;
-        if (!db.objectStoreNames.contains(this.storeName)) {
-          db.createObjectStore(this.storeName);
-        }
-      };
-    });
-  }
-
-  /**
-   * Convert IndexedDB request to promise
-   */
-  promisifyRequest(request) {
-    return new Promise((resolve, reject) => {
-      request.onsuccess = () => resolve(request.result);
-      request.onerror = () => reject(request.error);
-    });
+  async saveDirectoryHandle(handle) {
+    await persistDirectoryHandle(handle);
+    this.directoryHandle = handle;
   }
 
   /**
@@ -95,27 +69,7 @@ class FileSystemService {
         throw new Error('No directory handle available. Please select a vault folder first.');
       }
 
-      // Parse the path into segments
-      const pathSegments = relativePath.split('/').filter(segment => segment);
-      const fileName = pathSegments.pop();
-      
-      // Navigate/create subdirectories
-      let currentDir = this.directoryHandle;
-      for (const segment of pathSegments) {
-        try {
-          currentDir = await currentDir.getDirectoryHandle(segment, { create: true });
-        } catch (error) {
-          console.error(`[FileSystemService] Error creating directory ${segment}:`, error);
-          throw error;
-        }
-      }
-
-      // Create or overwrite the file
-      const fileHandle = await currentDir.getFileHandle(fileName, { create: true });
-      const writable = await fileHandle.createWritable();
-      await writable.write(content);
-      await writable.close();
-
+      await writeMarkdownWithDirectoryHandle(this.directoryHandle, content, relativePath);
       console.log(`[FileSystemService] File saved successfully: ${relativePath}`);
       return true;
     } catch (error) {

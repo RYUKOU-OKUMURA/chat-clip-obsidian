@@ -1,5 +1,6 @@
 // ChatGPT UI-related helpers (button placement, etc.)
 import { getSelectors } from './checks.js';
+import { createFallbackActionContainer, isVisibleElement } from '../shared/dom.js';
 
 // グローバルでツールチップを管理
 let globalTooltip = null;
@@ -110,14 +111,6 @@ function createSaveButton() {
   });
   
   return button;
-}
-
-function isVisibleElement(element) {
-  if (!element || !(element instanceof HTMLElement)) return false;
-  const style = window.getComputedStyle ? window.getComputedStyle(element) : null;
-  if (style && (style.display === 'none' || style.visibility === 'hidden')) return false;
-  const rect = element.getBoundingClientRect?.();
-  return !rect || rect.width > 0 || rect.height > 0;
 }
 
 function getContentElement(messageElement) {
@@ -251,98 +244,6 @@ function initializeChatGPT() {
   });
 }
 
-
-/**
- * コンテンツ要素を探す
- * @param {HTMLElement} messageElement - メッセージ要素
- * @returns {HTMLElement|null} コンテンツ要素またはnull
- */
-function findContentElement(messageElement) {
-  // コピーボタンを含むボタンコンテナを探す
-  const copyButton = messageElement.querySelector('[data-testid="copy-turn-action-button"]');
-  if (copyButton) {
-    // コピーボタンの親要素（ボタンコンテナ）を返す
-    return copyButton.parentElement;
-  }
-  
-  // メッセージ要素自体にコピーボタンがある場合
-  if (messageElement.matches && messageElement.matches('[data-testid="copy-turn-action-button"]')) {
-    return messageElement.parentElement;
-  }
-  
-  return null;
-}
-
-function createFallbackActionContainer(messageElement) {
-  let wrapper = messageElement.querySelector(':scope > .chatvault-inline-actions');
-  if (!wrapper) {
-    wrapper = document.createElement('div');
-    wrapper.className = 'chatvault-inline-actions';
-    wrapper.style.cssText = `
-      display: flex;
-      justify-content: flex-end;
-      gap: 4px;
-      margin-top: 6px;
-    `;
-    messageElement.appendChild(wrapper);
-  }
-  return wrapper;
-}
-
-/**
- * 動的更新を監視するオブザーバーを設定
- * @param {HTMLElement} messageElement - メッセージ要素
- * @param {HTMLElement} button - 追加するボタン
- */
-function setupDynamicObserver(messageElement, button) {
-  const observer = new MutationObserver((mutations) => {
-    for (const mutation of mutations) {
-      if (mutation.type !== 'childList') continue;
-      
-      const addedNode = findAddedContentNode(mutation.addedNodes);
-      if (addedNode) {
-        addButtonToElement(addedNode, button);
-        observer.disconnect();
-        return;
-      }
-    }
-  });
-
-  observer.observe(messageElement, {
-    childList: true,
-    subtree: true
-  });
-
-  setTimeout(() => {
-    observer.disconnect();
-    retryAddButton(messageElement, button);
-  }, 500);
-}
-
-/**
- * 追加されたノードからコンテンツ要素を探す
- * @param {NodeList} addedNodes - 追加されたノード
- * @returns {HTMLElement|null} コンテンツ要素またはnull
- */
-function findAddedContentNode(addedNodes) {
-  for (const node of addedNodes) {
-    if (node.nodeType !== Node.ELEMENT_NODE) continue;
-    
-    // ノード自体がコピーボタンかチェック
-    if (node.matches && node.matches('[data-testid="copy-turn-action-button"]')) {
-      return node.parentElement;
-    }
-    
-    // ノード内にコピーボタンがあるかチェック
-    const copyButton = node.querySelector('[data-testid="copy-turn-action-button"]');
-    if (copyButton) {
-      return copyButton.parentElement;
-    }
-  }
-  
-  return null;
-}
-
 /**
  * 要素にボタンを追加するヘルパー関数
  * @param {HTMLElement} contentElement - ボタンを追加する要素
@@ -364,32 +265,6 @@ function addButtonToElement(contentElement, button) {
   }
   
   return { added: true, button: buttonEl, target: contentElement };
-}
-
-/**
- * タイムアウト後の再試行関数
- * @param {HTMLElement} messageElement - メッセージ要素
- * @param {HTMLElement} button - 追加するボタン
- */
-function retryAddButton(messageElement, button) {
-  // 最後の手段として、メッセージ要素自体にボタンを追加
-  if (messageElement && messageElement.isConnected) {
-    const buttonEl = button;
-    
-    // コピーボタンが存在するかチェック
-    const copyButton = messageElement.querySelector('[data-testid="copy-turn-action-button"]');
-    
-    if (copyButton) {
-      // コピーボタンの左側に挿入
-      copyButton.parentElement.insertBefore(buttonEl, copyButton);
-    } else if (messageElement.matches('[data-testid="copy-turn-action-button"]')) {
-      // メッセージ要素自体がコピーボタンの場合
-      messageElement.parentElement.insertBefore(buttonEl, messageElement);
-    } else {
-      // 従来の方法で追加
-      messageElement.appendChild(buttonEl);
-    }
-  }
 }
 
 /**
@@ -446,14 +321,6 @@ function resolveMessageElementFromButton(btn) {
     // 6) ChatGPT固有のフォールバック: 会話ターン風の要素
     if (!messageEl) {
       messageEl = btn.closest('[data-testid^="conversation-turn-"], .conversation-turn, .group.w-full');
-    }
-    
-    // 7) グローバルフォールバック: ページ内の最後のメッセージコンテナ
-    if (!messageEl) {
-      const allMessages = document.querySelectorAll(selectors.container);
-      if (allMessages && allMessages.length) {
-        return allMessages[allMessages.length - 1];
-      }
     }
     
     return messageEl;
