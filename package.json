@@ -13,7 +13,8 @@
     "turndown-plugin-gfm": "^1.0.2"
   },
   "scripts": {
-    "build:chromium": "webpack --env browser=chromium --config webpack.config.js"
+    "build:chromium": "webpack --env browser=chromium --config webpack.config.js",
+    "test": "jest"
   },
   "eslintConfig": {
     "extends": [

@@ -4,6 +4,10 @@ import { getSelectors } from './checks.js';
 // グローバルでツールチップを管理
 let globalTooltip = null;
 
+function inlineButtonsEnabled() {
+  return window.__CHATVAULT_SHOW_SAVE_BUTTON__ !== false;
+}
+
 /**
  * ChatGPT用の保存ボタンを作成
  * @returns {HTMLElement} 保存ボタン要素
@@ -110,19 +114,23 @@ function createSaveButton() {
 
 
 function addSaveButton(messageElement, createSaveButton) {
+  if (!inlineButtonsEnabled()) {
+    return { added: false, button: null, target: null };
+  }
+
+  const selectors = getSelectors();
+  const root = messageElement.matches?.(selectors.container)
+    ? messageElement
+    : (messageElement.closest?.(selectors.container) || messageElement.querySelector?.(selectors.container) || messageElement);
+
   // 既存のボタンをチェックして重複を防ぐ
-  const existingButton = messageElement.querySelector('.chatvault-save-btn');
+  const existingButton = root.querySelector('.chatvault-save-btn');
   if (existingButton) {
     return { added: false, button: existingButton, target: existingButton.parentElement };
   }
 
   const button = createSaveButton();
-  const contentElement = findContentElement(messageElement);
-  
-  if (!contentElement) {
-    setupDynamicObserver(messageElement, button);
-    return { added: false, button: null, target: null };
-  }
+  const contentElement = findContentElement(root) || createFallbackActionContainer(root);
 
   return addButtonToElement(contentElement, button);
 }
@@ -144,39 +152,36 @@ function initializeChatGPT() {
   // 既存のボタンをクリーンアップ（SPA遷移時の重複防止）
   const existingButtons = document.querySelectorAll('.chatvault-save-btn');
   existingButtons.forEach(btn => btn.remove());
+  document.querySelectorAll('.chatvault-inline-actions').forEach(el => el.remove());
 
-  // 既存メッセージの初期スキャン - コピーボタンを含むメッセージを探す
-  let messages = document.querySelectorAll('[data-testid="copy-turn-action-button"]');
+  if (!inlineButtonsEnabled()) {
+    return;
+  }
 
-  // メッセージにボタンを追加（コピーボタンの親要素を対象とする）
-  messages.forEach(copyButton => {
-    addSaveButton(copyButton.parentElement, () => createSaveButton());
-  });
+  const scanMessages = () => {
+    const selectors = getSelectors();
+    document.querySelectorAll(selectors.container).forEach((message) => {
+      addSaveButton(message, () => createSaveButton());
+    });
+  };
+
+  scanMessages();
 
   // 新しいメッセージ用のmutation observerを設定
   globalObserver = new MutationObserver((mutations) => {
+    let shouldScan = false;
     mutations.forEach((mutation) => {
-      // 追加されたノードの処理
       if (mutation.type === 'childList') {
         mutation.addedNodes.forEach((node) => {
           if (node.nodeType === Node.ELEMENT_NODE) {
-            // コピーボタンが追加された場合の処理
-            const copyButtons = node.matches('[data-testid="copy-turn-action-button"]') 
-              ? [node] 
-              : node.querySelectorAll ? node.querySelectorAll('[data-testid="copy-turn-action-button"]') : [];
-            
-            copyButtons.forEach(copyButton => {
-              addSaveButton(copyButton.parentElement, () => createSaveButton());
-            });
+            shouldScan = true;
           }
         });
       }
-      
-      // 属性変更時の処理
-      if (mutation.type === 'attributes' && mutation.target.matches('[data-testid="copy-turn-action-button"]')) {
-        addSaveButton(mutation.target.parentElement, () => createSaveButton());
-      }
     });
+    if (shouldScan && inlineButtonsEnabled()) {
+      scanMessages();
+    }
   });
 
   globalObserver.observe(document.body, {
@@ -206,6 +211,22 @@ function findContentElement(messageElement) {
   }
   
   return null;
+}
+
+function createFallbackActionContainer(messageElement) {
+  let wrapper = messageElement.querySelector(':scope > .chatvault-inline-actions');
+  if (!wrapper) {
+    wrapper = document.createElement('div');
+    wrapper.className = 'chatvault-inline-actions';
+    wrapper.style.cssText = `
+      display: flex;
+      justify-content: flex-end;
+      gap: 4px;
+      margin-top: 6px;
+    `;
+    messageElement.appendChild(wrapper);
+  }
+  return wrapper;
 }
 
 /**

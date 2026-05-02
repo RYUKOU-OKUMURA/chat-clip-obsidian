@@ -3,6 +3,16 @@ import React, { useState, useEffect } from "react";
 import { toast } from "../../utils/notifications/toast.js";
 import { getSync } from "../../utils/browser/chrome.js";
 
+const normalizeMode = (mode) => {
+  if (mode === "last3" || mode === "last5") return "recent";
+  return ["single", "selection", "recent", "full"].includes(mode) ? mode : "single";
+};
+
+const normalizeSaveMethod = (method) => {
+  if (method === "advanced-uri" || method === "clipboard") return "auto";
+  return ["filesystem", "auto", "downloads"].includes(method) ? method : "filesystem";
+};
+
 const OptionsApp = () => {
 
   // Original settings
@@ -13,9 +23,8 @@ const OptionsApp = () => {
   const [showChatSettings, setShowChatSettings] = useState(false);
   const [defaultMode, setDefaultMode] = useState("single");
   const [showSaveButton, setShowSaveButton] = useState(true);
-  const [buttonPosition, setButtonPosition] = useState("top-right");
-  const [chatFolderPath, setChatFolderPath] = useState("ChatVault/{service}/{title}");
-  const [chatNoteFormat, setChatNoteFormat] = useState("---\ntitle: {title}\ndate: {date}\nservice: {service}\nurl: {url}\n---\n\n{content}");
+  const [chatFolderPath, setChatFolderPath] = useState("ChatVault/{service}");
+  const [chatNoteFormat, setChatNoteFormat] = useState("---\ntitle: {title}\nservice: {service}\nsource: {url}\nsaved: {saved}\nmode: {type}\n---\n\n{content}");
   const [showPreview, setShowPreview] = useState(true);
   const [defaultMessageCount, setDefaultMessageCount] = useState(30);
   const [autoTagging, setAutoTagging] = useState(true);
@@ -37,7 +46,6 @@ const OptionsApp = () => {
         "showChatSettings",
         "defaultMode",
         "showSaveButton",
-        "buttonPosition",
         "chatFolderPath",
         "chatNoteFormat",
         "showPreview",
@@ -63,13 +71,10 @@ const OptionsApp = () => {
           setShowChatSettings(result.showChatSettings);
         }
         if (result.defaultMode) {
-          setDefaultMode(result.defaultMode);
+          setDefaultMode(normalizeMode(result.defaultMode));
         }
         if (result.showSaveButton !== undefined) {
           setShowSaveButton(result.showSaveButton);
-        }
-        if (result.buttonPosition) {
-          setButtonPosition(result.buttonPosition);
         }
         if (result.chatFolderPath) {
           setChatFolderPath(result.chatFolderPath);
@@ -87,7 +92,7 @@ const OptionsApp = () => {
           setAutoTagging(result.autoTagging);
         }
         if (result.saveMethod) {
-          setSaveMethod(result.saveMethod);
+          setSaveMethod(normalizeSaveMethod(result.saveMethod));
         }
         if (result.downloadsFolder) {
           setDownloadsFolder(result.downloadsFolder);
@@ -155,8 +160,12 @@ const OptionsApp = () => {
   const saveDirectoryHandle = async (db, handle) => {
     const tx = db.transaction(['handles'], 'readwrite');
     const store = tx.objectStore('handles');
-    await store.put(handle, 'vaultDirectory');
-    return tx.complete;
+    await new Promise((resolve, reject) => {
+      const request = store.put(handle, 'vaultDirectory');
+      request.onsuccess = () => resolve();
+      request.onerror = () => reject(request.error);
+    });
+    db.close();
   };
 
   const handleSave = () => {
@@ -199,15 +208,14 @@ const OptionsApp = () => {
         folderPath: folder,
         // ChatVault settings
         showChatSettings: showChatSettings,
-        defaultMode: defaultMode,
+        defaultMode: normalizeMode(defaultMode),
         showSaveButton: showSaveButton,
-        buttonPosition: buttonPosition,
         chatFolderPath: chatFolderPath,
         chatNoteFormat: chatNoteFormat,
         showPreview: showPreview,
         defaultMessageCount: defaultMessageCount,
         autoTagging: autoTagging,
-        saveMethod: saveMethod,
+        saveMethod: normalizeSaveMethod(saveMethod),
         downloadsFolder: downloadsFolder.trim() || "ChatVault",
         selectedFolderPath: folderPath
       },
@@ -328,9 +336,8 @@ const OptionsApp = () => {
                   onChange={(e) => setSaveMethod(e.target.value)}
                 >
                   <option value="filesystem">File System API (推奨)</option>
-                  <option value="advanced-uri">Advanced URI プラグイン</option>
-                  <option value="downloads">ダウンロードフォルダ経由</option>
                   <option value="auto">自動選択</option>
+                  <option value="downloads">ダウンロードフォルダ経由</option>
                 </select>
               </div>
 
@@ -365,8 +372,7 @@ const OptionsApp = () => {
                   onChange={(e) => setDefaultMode(e.target.value)}
                 >
                   <option value="single">単一メッセージ</option>
-                  <option value="last3">最新3件</option>
-                  <option value="last5">最新5件</option>
+                  <option value="recent">最新N件</option>
                   <option value="full">会話全体</option>
                   <option value="selection">選択範囲</option>
                 </select>
@@ -405,20 +411,6 @@ const OptionsApp = () => {
                       チャットページに保存ボタンを表示
                     </label>
                   </div>
-                  {showSaveButton && (
-                    <div className="mt-2">
-                      <label htmlFor="buttonPosition" className="block text-sm font-medium mb-1">ボタン位置</label>
-                      <select
-                        id="buttonPosition"
-                        className="w-full p-2 bg-gray-700 rounded border border-gray-600 focus:outline-none focus:ring-2 focus:ring-purple-400 text-sm"
-                        value={buttonPosition}
-                        onChange={(e) => setButtonPosition(e.target.value)}
-                      >
-                        <option value="top-right">右上</option>
-                        <option value="bottom-right">右下</option>
-                      </select>
-                    </div>
-                  )}
                 </div>
               </div>
 
@@ -463,9 +455,9 @@ const OptionsApp = () => {
                   ( 使用可能なプレースホルダー: {'{title}'}, {'{content}'}, {'{url}'}, {'{date}'}, {'{service}'} )
                 </p>
                 <div className="flex gap-2 my-2">
-                    <button onClick={() => setChatNoteFormat('---\ntitle: {title}\ndate: {date}\nservice: {service}\nurl: {url}\n---\n\n{content}')} className="px-3 py-1 bg-indigo-600 hover:bg-indigo-700 text-white text-sm rounded-md">デフォルト</button>
-                    <button onClick={() => setChatNoteFormat('---\ntitle: {title}\ndate: {date}\nservice: {service}\nurl: {url}\ntags: [ai-chat, {service}]\n---\n\n# {title}\n\n{content}')} className="px-3 py-1 bg-indigo-600 hover:bg-indigo-700 text-white text-sm rounded-md">タグ付き</button>
-                    <button onClick={() => setChatNoteFormat('# {title}\\n\\n- **Date**: {date}\\n- **Service**: {service}\\n- **URL**: [{url}]({url})\\n\\n---\\n\\n{content}')} className="px-3 py-1 bg-indigo-600 hover:bg-indigo-700 text-white text-sm rounded-md">シンプル</button>
+                    <button onClick={() => setChatNoteFormat('---\ntitle: {title}\nservice: {service}\nsource: {url}\nsaved: {saved}\nmode: {type}\n---\n\n{content}')} className="px-3 py-1 bg-indigo-600 hover:bg-indigo-700 text-white text-sm rounded-md">デフォルト</button>
+                    <button onClick={() => setChatNoteFormat('---\ntitle: {title}\nservice: {service}\nsource: {url}\nsaved: {saved}\nmode: {type}\ntags: [ai-chat, {service}]\n---\n\n# {title}\n\n{content}')} className="px-3 py-1 bg-indigo-600 hover:bg-indigo-700 text-white text-sm rounded-md">タグ付き</button>
+                    <button onClick={() => setChatNoteFormat('# {title}\\n\\n- **Saved**: {saved}\\n- **Service**: {service}\\n- **Mode**: {type}\\n- **URL**: [{url}]({url})\\n\\n---\\n\\n{content}')} className="px-3 py-1 bg-indigo-600 hover:bg-indigo-700 text-white text-sm rounded-md">シンプル</button>
                 </div>
                 <textarea
                   id="chatNoteFormat"

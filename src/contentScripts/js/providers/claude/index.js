@@ -1,6 +1,5 @@
 import { getSelectors } from './checks.js';
 import { addSaveButton, createSaveButton, resolveMessageElementFromButton, injectObsidianMenuItem, startContentScriptIntegration } from './ui.js';
-import { initializeSession, startPolling } from './api.js';
 import { extractSingleMessage, captureMessages } from './text.js';
 
 const ClaudeProvider = {
@@ -10,9 +9,6 @@ const ClaudeProvider = {
   createSaveButton,
   resolveMessageElementFromButton,
   injectObsidianMenuItem,
-  // API/session
-  initializeSession,
-  startPolling,
   // Text extraction interface for generic handler
   extractSingleMessage,
   captureMessages,

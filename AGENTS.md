@@ -2,7 +2,7 @@
 
 ## プロジェクト概要
 
-ChatVault Clipは、Web版LLMチャット（ChatGPT/Codex）の会話をワンクリックでObsidian VaultにMarkdownとして保存するChrome拡張機能です。既存のObsidian Web Clipperをベースに、AI チャット専用機能を追加しています。
+ChatVault Clipは、Web版LLMチャット（MVP対象: ChatGPT / Claude / Gemini）の会話をObsidian VaultにMarkdownとして保存するChromium MV3拡張機能です。既存のObsidian Web Clipperをベースに、AIチャット専用機能を追加しています。
 
 ## プロジェクト構造
 
@@ -18,18 +18,17 @@ Chat Clip Obsidian/
 │   ├── contentScripts/        # Webページ注入スクリプト
 │   │   ├── inject.js         # メインコンテントスクリプト
 │   │   └── inject.css        # コンテントスクリプト用CSS
-│   ├── services/              # サービス別DOM抽出ロジック
-│   │   ├── base.js           # 基底クラス (未実装)
-│   │   ├── chatgpt.js        # ChatGPT抽出ロジック (未実装)
-│   │   └── Codex.js         # Codex抽出ロジック (未実装)
+│   ├── contentScripts/js/providers/ # サービス別DOM抽出/UIロジック
+│   │   ├── chatgpt/          # ChatGPT provider
+│   │   ├── claude/           # Claude provider
+│   │   └── gemini/           # Gemini provider
 │   └── utils/                 # 共通ユーティリティ
-│       └── markdown.js       # Markdown変換ユーティリティ (未実装)
+│       └── markdown.js       # Markdown変換ユーティリティ
 ├── manifests/
 │   ├── manifest_chromium.json # Chrome拡張機能設定
 │   └── manifest_firefox.json  # Firefox拡張機能設定
 ├── public/                    # 静的ファイル
 ├── dist-chromium/            # Chrome用ビルド出力 (ビルド時生成)
-├── dist-firefox/             # Firefox用ビルド出力 (ビルド時生成)
 ├── package.json              # プロジェクト設定
 ├── webpack.config.js         # Webpackビルド設定
 ├── tailwind.config.js        # TailwindCSS設定
@@ -44,22 +43,10 @@ Chat Clip Obsidian/
 npm install
 ```
 
-### 開発モードでのビルド（ファイル監視付き）
-```bash
-# Chrome/Edge用
-npm run dev:chromium
-
-# Firefox用
-npm run dev:firefox
-```
-
 ### プロダクションビルド
 ```bash
 # Chrome/Edge用
 npm run build:chromium
-
-# Firefox用
-npm run build:firefox
 ```
 
 ### Chrome拡張機能としてのテスト
@@ -73,21 +60,22 @@ npm run build:firefox
 
 ### ✅ 完了
 - **基本プロジェクト構造**: package.json, webpack設定, manifest設定
-- **コンテントスクリプト**: inject.js, inject.css - ChatGPT/Codexページにボタン注入機能
+- **コンテントスクリプト**: ChatGPT / Claude / Geminiページに保存ボタンを注入
+- **popup保存導線**: `single / selection / recent / full` を実保存処理へ接続
+- **保存共通化**: File System Access API主経路、`clipboard=true` URI、短文URI、Downloads fallback
+- **Claude DOM抽出**: 内部API/Cookie/pollingに依存しないDOM抽出
+- **Markdown変換**: Turndown + GFM
 
-### 🔄 進行中
-- **services/chatgpt.js**: ChatGPT DOM抽出ロジック
-
-### ⏳ 未実装
-- **utils/markdown.js**: HTML→Markdown変換
-- **background.js拡張**: メッセージ通信とObsidian URI処理
-- **ポップアップUI拡張**: ChatVault機能の追加
-- **services/Codex.js**: Codex DOM抽出ロジック
+### MVP対象外
+- Firefox / Safari / モバイルブラウザ
+- Codex / NotebookLM / Google AI Studio
+- 共有ページ専用対応
+- Chrome Web Store審査最適化
 
 ## 主要機能の仕様
 
 ### 1. コンテントスクリプト (inject.js)
-- ChatGPT (`chat.openai.com`) とCodex (`Codex.ai`) ページで動作
+- ChatGPT (`chat.openai.com`, `chatgpt.com`)、Claude (`claude.ai`)、Gemini (`gemini.google.com`) ページで動作
 - メッセージにホバーでSaveボタンを表示
 - DOM変更を監視して新しいメッセージにボタンを自動追加
 - ポップアップとの通信でメッセージ取得機能提供
@@ -105,9 +93,9 @@ npm run build:firefox
 - スピーカー見出し: `### User` / `### Assistant`
 
 ### 4. Obsidian連携
-- `obsidian://new` URIでノート作成
-- URI長すぎる場合はクリップボード経由でフォールバック
-- フォルダ構造: `LLM Chats/{service}/{YYYY-MM-DD}_{title}.md`
+- File System Access APIでVaultへ直接Markdownを書き込み
+- 失敗時は `obsidian://new?...&clipboard=true`、短文 `content=` URI、Downloads APIの順にfallback
+- フォルダ構造: `ChatVault/{service}/{YYYY-MM-DD}_{title}.md`
 
 ## 開発のベストプラクティス
 
@@ -119,7 +107,7 @@ npm run build:firefox
 
 ### テスト方法
 1. **手動テスト**: 
-   - ChatGPTとCodexで実際にメッセージ保存を試す
+   - ChatGPT / Claude / Geminiで実際に4保存モードを試す
    - 各ブラウザでの動作確認
 2. **エラーログ確認**:
    - Chrome DevTools Consoleでエラーチェック
@@ -141,13 +129,12 @@ npm run build:firefox
 - ポップアップUIのメインコンポーネント
 - Web Clipper機能 + ChatVault機能の統合UI
 
-## 次に実装すべきファイル優先度
+## 次に実施すべき優先度
 
-1. **services/chatgpt.js** (HIGH) - DOM抽出ロジック
-2. **utils/markdown.js** (HIGH) - Markdown変換
-3. **background.js拡張** (HIGH) - メッセージハンドリング
-4. **App.js更新** (MEDIUM) - UI機能追加
-5. **services/Codex.js** (MEDIUM) - Codex対応
+1. **実ページ手動QA** (HIGH) - ChromeでChatGPT / Claude / Geminiの4保存モード確認
+2. **selector補強** (HIGH) - 実ページで壊れたDOM抽出/ボタン注入の修正
+3. **Edge/Brave/ArcスモークQA** (MEDIUM)
+4. **Chrome Web Store向け整理** (MEDIUM)
 
 ## デバッグ時のポイント
 

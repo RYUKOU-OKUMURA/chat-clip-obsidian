@@ -1,6 +1,6 @@
 # Chat Clip Obsidian — AIチャットをObsidianへ
 
-ChatGPTやGoogle Geminiなどの生成AIサービスのチャット会話を、ワンクリックでObsidian vaultにMarkdownとして保存するChrome拡張機能。
+ChatGPT、Claude、Google Geminiのチャット会話を、Chromium系ブラウザからObsidian VaultへMarkdownとして保存するChrome拡張機能。
 
 ## 概要
 
@@ -8,13 +8,13 @@ Chat Clip Obsidianは、Web版生成AIチャットサービスの会話を効率
 
 ### 主な特徴
 
-- 🤖 **AIチャット専用**: ChatGPT、Claude、その他の生成AIサービスに特化
+- 🤖 **AIチャット専用**: ChatGPT、Claude、Geminiに特化
 - 📝 **複数の保存モード**: 単一メッセージ、選択範囲、最新N件、会話全体
-- 🎯 **ワンクリック保存**: メッセージにホバーで表示される保存ボタン
+- 🎯 **ワンクリック保存**: ポップアップ保存とメッセージ横の保存ボタン
 - 📁 **スマート整理**: サービス別、日付別の自動フォルダ分類
 - ✨ **きれいなMarkdown**: コードブロック、数式、定義リスト、ネストされたリスト、画像キャプションなどを適切に変換
-- 🔗 **直接連携**: Obsidian URIで即座にノート作成
-- 💾 **直接保存機能**: File System Access APIによるVaultへの直接書き込み（NEW!）
+- 💾 **直接保存機能**: File System Access APIによるVaultへの直接書き込み
+- 🔗 **Fallback連携**: Obsidian公式URIの `clipboard=true` とDownloads API
 - 🔔 **保存通知**: ファイル保存成功時の通知表示
 
 ## 対応サービス
@@ -24,11 +24,10 @@ Chat Clip Obsidianは、Web版生成AIチャットサービスの会話を効率
 - ✅ **Claude** (`claude.ai`)
 - ✅ **Google Gemini** (`gemini.google.com`)
 
-### 今後対応予定
-- 🔄 **Perplexity AI**
-- 🔄 **その他の生成AIサービス**
-
-*新しいサービスのリクエストは、Issueでお気軽にお知らせください。*
+### MVP対象外
+- Firefox / Safari / モバイルブラウザ
+- Codex / NotebookLM / Google AI Studio / Perplexity AI
+- 共有ページ専用対応
 
 ## 保存モード
 
@@ -73,49 +72,38 @@ npm run build:chromium
 1. **拡張機能アイコン**をクリックして**オプション**を選択
 2. **保存方法の選択**:
    - **File System API (推奨)**: File System Access APIでVaultに直接保存
-   - **Advanced URI プラグイン**: ObsidianのAdvanced URIプラグインと連携して即時保存
+   - **自動選択**: File System API失敗時にObsidian URI、Downloadsへfallback
    - **ダウンロードフォルダ経由**: ダウンロードフォルダ経由で保存
-   - **自動選択**: 状況に応じて最適な方法を自動選択
-3. **Advanced URIプラグイン設定**（任意）:
-   - Obsidianで「Advanced URI」コミュニティプラグインをインストールして有効化
-   - Chat Clip Obsidianの保存方法から「Advanced URI プラグイン」を選択
-   - Obsidianが起動している状態でURI呼び出しを許可すると、ワンクリック保存が有効になります
-4. **File System API設定**（推奨）:
+3. **File System API設定**（推奨）:
    - 「Vault フォルダを選択」ボタンでObsidian Vaultフォルダを選択
    - 一度選択すれば、以降は自動的に直接保存されます
-5. **基本設定**:
+4. **基本設定**:
    - **Obsidian Vault名**: 保存先のvault名を入力
-   - **保存フォルダ**: 保存先パス（例：`AI Chats/{service}/{date}`）
-6. **カスタマイズ可能**:
+   - **保存フォルダ**: 保存先パス（デフォルト: `ChatVault/{service}`）
+5. **カスタマイズ可能**:
    - デフォルト保存モード
    - ファイル名形式
    - Markdownテンプレート
 
 ## 推奨保存方法
 
-**Advanced URIプラグイン**
-- ObsidianのコミュニティプラグインからAdvanced URIをインストールして有効化
-- ObsidianでURIリンクの受付を許可し、Vaultを開いた状態にしておく
-- Chat Clip Obsidianの保存方法で「Advanced URI プラグイン」を選択し連携を有効化
-- 保存ボタンをクリックすると、Obsidian内で対象Vaultにノートが即時作成されます
+**File System API**
+- OptionsでObsidian Vaultのルートフォルダを選択します。
+- 通常保存はVaultへMarkdownファイルを直接書き込みます。
+- File System APIが失敗した場合は、`obsidian://new?...&clipboard=true`、短文URI、Downloads APIの順にfallbackします。
 
 ## 使用方法
 
 ### 基本的な使い方
 
 1. **ChatGPT・Claude・Gemini**のいずれかにアクセス
-2. **保存したいメッセージにホバー**すると「Save」ボタンが表示
-3. **ボタンをクリック**でObsidianに保存完了
-
-> ℹ️ **Claudeでのツールチップ表示について**
->
-> Claudeは独自のツールチップ（Radix UI）を使用しているため、保存ボタンにカーソルを合わせると「Copy」と表示される場合があります。ボタン自体は正常に動作しますが、表示はClaude側の仕様で上書きされるため、現状はそのままの挙動となります。
+2. 拡張機能ポップアップで保存モードを選び、「保存」をクリック
+3. 個別メッセージを保存したい場合は、メッセージ横の保存ボタンも利用できます
 
 ### その他の保存方法
 
-- **拡張機能ポップアップ**: アイコンクリックで保存モード選択
-- **右クリックメニュー**: テキスト選択後の保存（今後実装予定）
-- **キーボードショートカット**: Alt+O（今後実装予定）
+- **右クリックメニュー**: 対応チャットページで選択テキストを保存
+- **キーボードショートカット**: ポップアップ内で Alt+S
 
 ## 保存されるMarkdown形式
 
@@ -123,16 +111,15 @@ npm run build:chromium
 ---
 title: "AI Chat - 2024-01-15"
 service: "ChatGPT"
-date: "2024-01-15"
-url: "https://chat.openai.com/c/xxxxx"
+source: "https://chatgpt.com/c/xxxxx"
+saved: "2024-01-15T09:00:00.000Z"
+mode: "full"
 ---
 
-# AI Chat - 2024-01-15
-
-## User
+### User
 ここにユーザーの質問が入ります。
 
-## Assistant
+### Assistant
 ここにAIの回答が入ります。
 
 ```javascript
@@ -183,14 +170,13 @@ src/
 ## ロードマップ
 
 ### 近日実装予定
-- [ ] **Perplexity AI**対応
 - [ ] 一括エクスポート機能
 - [ ] カスタムテンプレ機能
-- [ ] キーボードショートカット
+- [ ] Chromium以外のブラウザ検証
 
 ### 将来的な構想
+- [ ] Perplexity AI対応
 - [ ] モバイル対応
-- [ ] API経由での保存
 - [ ] 他のノートアプリ対応
 - [ ] チームでの共有機能
 
@@ -204,11 +190,11 @@ src/
 
 **Q: Obsidianにノートが作成されない**
 - Vault名が正しく設定されているか確認してください
-- Obsidianが起動しているか確認してください
+- OptionsでVaultフォルダを選択しているか確認してください
+- URI fallbackを使う場合はObsidianが起動しているか確認してください
 
 **Q: 長い会話が保存できない**
-- 保存方法を「ダウンロードフォルダ経由」に変更してください
-- または「自動選択」を使用すると、コンテンツサイズに応じて適切な方法が選択されます
+- File System API保存を推奨します。Vaultフォルダ未選択や権限拒否時は自動選択でDownloads fallbackを使えます。
 
 ## 開発への貢献
 

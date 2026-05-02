@@ -9,6 +9,18 @@ import ChatModeSelector from "./components/ChatModeSelector";
 // Lazy load MarkdownPreview to reduce initial bundle size
 const MarkdownPreview = React.lazy(() => import("./components/MarkdownPreview"));
 
+const getChatServiceName = (url = "") => {
+  if (url.includes("chatgpt.com") || url.includes("chat.openai.com")) return "ChatGPT";
+  if (url.includes("claude.ai")) return "Claude";
+  if (url.includes("gemini.google.com")) return "Gemini";
+  return "Unknown";
+};
+
+const normalizeMode = (mode) => {
+  if (mode === "last3" || mode === "last5") return "recent";
+  return ["single", "selection", "recent", "full"].includes(mode) ? mode : "single";
+};
+
 function App() {
   // Original state
   const [pageInfo, setPageInfo] = useState({ title: "", url: "" });
@@ -126,7 +138,7 @@ function App() {
           setChatFolderPath(result.chatFolderPath);
         }
         if (result.defaultMode && isOnChatPage) {
-          setMode(result.defaultMode);
+          setMode(normalizeMode(result.defaultMode));
         }
         if (result.showPreview !== undefined) {
           setShowPreview(result.showPreview);
@@ -164,8 +176,7 @@ function App() {
   // Generate chat preview content
   useEffect(() => {
     if (isOnChatPage) {
-      const service = pageInfo.url.includes('chatgpt.com') ? 'ChatGPT' :
-                      pageInfo.url.includes('claude.ai') ? 'Claude' : 'Unknown';
+      const service = getChatServiceName(pageInfo.url);
       const date = new Date().toISOString().split('T')[0];
       const chatTitle = title || `${service} Chat - ${date}`;
 
@@ -260,22 +271,75 @@ url: ${pageInfo.url}
     );
   }
 
+  const sendTabMessage = (tabId, payload) => new Promise((resolve, reject) => {
+    chrome.tabs.sendMessage(tabId, payload, (response) => {
+      const lastError = chrome.runtime.lastError;
+      if (lastError) {
+        reject(lastError);
+        return;
+      }
+      resolve(response);
+    });
+  });
+
   const saveNote = async () => {
-    // Save only the popup settings (mode, messageCount) without triggering Obsidian save
-    const data = {
-      chatMode: mode,
-      messageCount: mode === 'recent' ? messageCount : undefined,
-      savedAt: Date.now()
+    const actionByMode = {
+      single: 'saveActive',
+      selection: 'saveSelected',
+      recent: 'saveLastN',
+      full: 'saveAll'
     };
+
+    const selectedMode = normalizeMode(mode);
+    const action = actionByMode[selectedMode];
+
     try {
-      chrome.storage.local.set(data, () => {
-        setNotification({ type: 'success', message: '設定を保存しました' });
-        toast.show('設定を保存しました', 'success');
-        setTimeout(() => window.close(), 800);
+      setSaveButtonDisabled(true);
+      setNotification({ type: 'info', message: '保存中です...' });
+
+      const tabs = await queryActiveTab();
+      const tab = tabs[0];
+      if (!tab?.id || !action) {
+        throw new Error('保存対象のタブを取得できませんでした');
+      }
+
+      const response = await sendTabMessage(tab.id, {
+        action,
+        count: selectedMode === 'recent' ? messageCount : undefined
       });
-    } catch (_) {
-      setNotification({ type: 'error', message: '設定の保存に失敗しました' });
-      toast.show('設定の保存に失敗しました', 'error');
+
+      if (!response || !response.success) {
+        throw new Error(response?.userMessage || response?.error || '保存に失敗しました');
+      }
+
+      const service = response.service || getChatServiceName(tab.url || pageInfo.url);
+      const historyItem = {
+        service,
+        title: response.title || title || tab.title || 'Untitled',
+        filename: response.filename,
+        method: response.method,
+        timestamp: Date.now()
+      };
+
+      chrome.storage.local.get(['saveHistory'], (stored) => {
+        const nextHistory = [historyItem, ...(stored.saveHistory || [])].slice(0, 10);
+        chrome.storage.local.set({
+          chatMode: selectedMode,
+          messageCount: selectedMode === 'recent' ? messageCount : undefined,
+          savedAt: Date.now(),
+          saveHistory: nextHistory
+        });
+      });
+
+      const message = response.message || '保存しました';
+      setNotification({ type: 'success', message });
+      toast.show(message, 'success');
+      setTimeout(() => window.close(), 900);
+    } catch (error) {
+      const message = error?.message || '保存に失敗しました';
+      setNotification({ type: 'error', message });
+      toast.show(message, 'error');
+      setSaveButtonDisabled(false);
     }
   };
 
@@ -359,7 +423,7 @@ url: ${pageInfo.url}
             </div>
             {!isOnChatPage && (
               <div className="text-xs text-red-500">
-                この機能はサポートされているチャットページでのみ動作します（ChatGPT、Claude）
+                この機能はサポートされているチャットページでのみ動作します（ChatGPT、Claude、Gemini）
               </div>
             )}
           </div>
@@ -376,9 +440,11 @@ url: ${pageInfo.url}
                   }`}>
                     <div className="flex items-center space-x-2 flex-1 min-w-0">
                       <span className={`px-1.5 py-0.5 rounded text-xs font-medium ${
-                        item.service === 'ChatGPT' 
-                          ? 'bg-green-500/20 text-green-400' 
-                          : 'bg-purple-500/20 text-purple-400'
+                        item.service === 'ChatGPT'
+                          ? 'bg-green-500/20 text-green-400'
+                          : item.service === 'Gemini'
+                            ? 'bg-blue-500/20 text-blue-400'
+                            : 'bg-purple-500/20 text-purple-400'
                       }`}>
                         {item.service}
                       </span>
@@ -415,7 +481,7 @@ url: ${pageInfo.url}
 
       {notification && (
         <div className={`notification fixed top-2 right-2 px-4 py-2 rounded-md text-white z-50 ${
-          notification.type === 'success' ? 'bg-green-500' : 'bg-red-500'
+          notification.type === 'success' ? 'bg-green-500' : notification.type === 'info' ? 'bg-blue-500' : 'bg-red-500'
         }`}>
           {notification.message}
         </div>

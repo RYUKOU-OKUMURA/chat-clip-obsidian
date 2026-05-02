@@ -43,7 +43,7 @@ export function extractSingleMessage(messageElement) {
 export function captureMessages(mode, count = null) {
   const selectors = getSelectors();
   const allMessages = Array.from(document.querySelectorAll(selectors.container)).map((msg) => {
-    const contentEl = msg.querySelector(selectors.content);
+    const contentEl = msg.querySelector(selectors.content) || msg;
     // Determine role by matching self or descendant to handle wrapper containers
     const isUser = msg.matches?.(selectors.userMessage) || !!msg.querySelector?.(selectors.userMessage);
     const html = contentEl ? contentEl.innerHTML : '';
@@ -67,5 +67,5 @@ export function captureMessages(mode, count = null) {
     .replace(' - ChatGPT', '')
     .replace(' | ChatGPT', '');
 
-  return { success: true, messages, title };
+  return { success: true, messages, title, service: 'chatgpt' };
 }

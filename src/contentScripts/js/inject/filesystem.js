@@ -64,6 +64,7 @@ export async function ensureDirectoryHandleIfNeeded() {
         chrome.storage.sync.get(['saveMethod'], resolve);
       });
       method = prefs?.saveMethod || 'filesystem';
+      if (method === 'advanced-uri' || method === 'clipboard') method = 'auto';
     } else {
       // If we cannot read settings, avoid prompting the directory picker here
       // and let background fall back to other methods.
@@ -96,16 +97,7 @@ export async function handleFileSystemSave(content, relativePath) {
 
     let dirHandle = await loadDirectoryHandle();
     if (!dirHandle) {
-      if (typeof window.showDirectoryPicker === 'function') {
-        try {
-          dirHandle = await window.showDirectoryPicker({ mode: 'readwrite' });
-          await saveDirectoryHandle(dirHandle);
-        } catch (e) {
-          throw new Error('Vaultフォルダが未設定です。オプションで設定するか、保存時に表示されるダイアログで許可してください。');
-        }
-      } else {
-        throw new Error('このブラウザはFile System Access APIをサポートしていません。オプションから別の保存方法を選択してください。');
-      }
+      throw new Error('Vaultフォルダが未設定です。オプション画面でObsidian Vaultフォルダを選択してください。');
     }
 
     const permission = await dirHandle.queryPermission({ mode: 'readwrite' });

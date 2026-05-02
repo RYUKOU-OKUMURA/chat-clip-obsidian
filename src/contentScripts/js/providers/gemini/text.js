@@ -35,9 +35,7 @@ export function extractSingleMessage(messageElement) {
 
     const title = document.title
       .replace(' | Gemini', '')
-      .replace(' - Gemini', '')
-      .replace(' | Google AI Studio', '')
-      .replace(' - Google AI Studio', '');
+      .replace(' - Gemini', '');
 
     return { role, content, title };
   } catch (_) {
@@ -56,9 +54,7 @@ export function extractSingleMessage(messageElement) {
     
     const title = document.title
       .replace(' | Gemini', '')
-      .replace(' - Gemini', '')
-      .replace(' | Google AI Studio', '')
-      .replace(' - Google AI Studio', '');
+      .replace(' - Gemini', '');
       
     return { role, content: text, title };
   }
@@ -69,7 +65,7 @@ export function captureMessages(mode, count = null) {
   
   // 通常のメッセージを取得
   const normalMessages = Array.from(document.querySelectorAll(selectors.container)).map((msg) => {
-    const contentEl = msg.querySelector(selectors.content);
+    const contentEl = msg.querySelector(selectors.content) || msg;
     
     // ロールを判定
     let role = 'assistant';
@@ -112,11 +108,9 @@ export function captureMessages(mode, count = null) {
 
   const title = document.title
     .replace(' | Gemini', '')
-    .replace(' - Gemini', '')
-    .replace(' | Google AI Studio', '')
-    .replace(' - Google AI Studio', '');
+    .replace(' - Gemini', '');
 
-  return { success: true, messages, title };
+  return { success: true, messages, title, service: 'gemini' };
 }
 
 /**
@@ -258,9 +252,7 @@ function extractCodeImmersivePanelContent(codeImmersivePanel) {
     // ページタイトルを取得
     const pageTitle = document.title
       .replace(' | Gemini', '')
-      .replace(' - Gemini', '')
-      .replace(' | Google AI Studio', '')
-      .replace(' - Google AI Studio', '');
+      .replace(' - Gemini', '');
     
     return {
       role: 'assistant',
@@ -274,9 +266,7 @@ function extractCodeImmersivePanelContent(codeImmersivePanel) {
     const fallbackContent = codeImmersivePanel.textContent || '';
     const pageTitle = document.title
       .replace(' | Gemini', '')
-      .replace(' - Gemini', '')
-      .replace(' | Google AI Studio', '')
-      .replace(' - Google AI Studio', '');
+      .replace(' - Gemini', '');
     
     return {
       role: 'assistant',

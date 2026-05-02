@@ -11,14 +11,12 @@
     "service_worker": "background.js"
   },
   "options_page": "options.html",
-  "permissions": ["activeTab", "storage", "clipboardWrite", "contextMenus", "downloads", "notifications", "cookies"],
+  "permissions": ["activeTab", "storage", "clipboardWrite", "contextMenus", "downloads", "notifications"],
   "host_permissions": [
     "https://chat.openai.com/*",
     "https://chatgpt.com/*",
     "https://claude.ai/*",
-    "https://gemini.google.com/*",
-    "https://aistudio.google.com/*",
-    "https://notebooklm.google.com/*"
+    "https://gemini.google.com/*"
   ],
   "web_accessible_resources": [
     {
@@ -34,15 +32,13 @@
         "https://chat.openai.com/*",
         "https://chatgpt.com/*",
         "https://claude.ai/*",
-        "https://gemini.google.com/*",
-        "https://aistudio.google.com/*",
-        "https://notebooklm.google.com/*"
+        "https://gemini.google.com/*"
       ]
     }
   ],
   "content_scripts": [
     {
-      "matches": ["https://chat.openai.com/*", "https://chatgpt.com/*", "https://claude.ai/*", "https://gemini.google.com/*", "https://aistudio.google.com/*", "https://notebooklm.google.com/*"],
+      "matches": ["https://chat.openai.com/*", "https://chatgpt.com/*", "https://claude.ai/*", "https://gemini.google.com/*"],
       "js": ["contentScript.js"],
       "css": ["contentScript.css"],
       "run_at": "document_idle",

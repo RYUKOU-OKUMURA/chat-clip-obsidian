@@ -2,26 +2,18 @@
  * Utilities to construct Obsidian URIs safely.
  */
 
-export function buildObsidianNewUri({ vaultName, filePath, content }) {
+export function buildObsidianNewUri({ vaultName, filePath, content, clipboard = false, silent = false }) {
   const v = encodeURIComponent(vaultName || 'MyVault');
   const f = encodeURIComponent(filePath || 'Untitled.md');
-  const c = content != null ? encodeURIComponent(content) : undefined;
-  return c != null
-    ? `obsidian://new?vault=${v}&file=${f}&content=${c}`
-    : `obsidian://new?vault=${v}&file=${f}`;
+  const params = [`vault=${v}`, `file=${f}`];
+  if (clipboard) {
+    params.push('clipboard=true');
+  } else if (content != null) {
+    params.push(`content=${encodeURIComponent(content)}`);
+  }
+  if (silent) {
+    params.push('silent=true');
+  }
+  return `obsidian://new?${params.join('&')}`;
 }
-
-export function buildAdvancedUriText({ vaultName, filePath, text, mode = 'new' }) {
-  const v = encodeURIComponent(vaultName || 'MyVault');
-  const f = encodeURIComponent(filePath || 'Untitled.md');
-  const t = encodeURIComponent(text || '');
-  return `obsidian://advanced-uri?vault=${v}&filepath=${f}&text=${t}&mode=${mode}`;
-}
-
-export function buildAdvancedUriClipboard({ vaultName, filePath, mode = 'new' }) {
-  const v = encodeURIComponent(vaultName || 'MyVault');
-  const f = encodeURIComponent(filePath || 'Untitled.md');
-  return `obsidian://advanced-uri?vault=${v}&filepath=${f}&clipboard=true&mode=${mode}`;
-}
-
 

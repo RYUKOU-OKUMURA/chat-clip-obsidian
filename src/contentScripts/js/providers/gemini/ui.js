@@ -5,6 +5,10 @@ import { getSelectors } from './checks.js';
 let globalTooltip = null;
 let globalObserver = null;
 
+function inlineButtonsEnabled() {
+  return window.__CHATVAULT_SHOW_SAVE_BUTTON__ !== false;
+}
+
 /**
  * Obsidian保存ボタンを作成する
  * @returns {HTMLElement} 保存ボタン要素
@@ -404,6 +408,10 @@ function createToolbarCloseButton() {
  * ボタンをメッセージ要素に追加
  */
 function addSaveButton(messageElement, createSaveButton) {
+  if (!inlineButtonsEnabled()) {
+    return { added: false, button: null, target: null };
+  }
+
   // 既存のボタンチェック
   const existingButton = messageElement.querySelector('.chatvault-save-btn');
   if (existingButton) {
@@ -425,7 +433,25 @@ function addSaveButton(messageElement, createSaveButton) {
     return { added: true, button: button, target: buttonContainer };
   }
 
-  return { added: false, button: null, target: null };
+  const wrapper = createFallbackActionContainer(messageElement);
+  wrapper.appendChild(button);
+  return { added: true, button, target: wrapper };
+}
+
+function createFallbackActionContainer(messageElement) {
+  let wrapper = messageElement.querySelector(':scope > .chatvault-inline-actions');
+  if (!wrapper) {
+    wrapper = document.createElement('div');
+    wrapper.className = 'chatvault-inline-actions';
+    wrapper.style.cssText = `
+      display: flex;
+      justify-content: flex-end;
+      gap: 4px;
+      margin-top: 6px;
+    `;
+    messageElement.appendChild(wrapper);
+  }
+  return wrapper;
 }
 
 /**
@@ -441,6 +467,11 @@ function initializeGemini(createSaveButton) {
   // 既存のボタンをクリーンアップ
   const existingButtons = document.querySelectorAll('.chatvault-save-btn');
   existingButtons.forEach(btn => btn.remove());
+  document.querySelectorAll('.chatvault-inline-actions').forEach(el => el.remove());
+
+  if (!inlineButtonsEnabled()) {
+    return;
+  }
 
   // 既存メッセージの初期スキャン
   const messages = document.querySelectorAll('.buttons-container-v2');
@@ -545,150 +576,45 @@ function resolveMessageElementFromButton(btn) {
  */
 function initializeGeminiWithNewButtons() {
   console.info('Gemini用の保存ボタンを追加中...');
+  if (globalObserver) {
+    globalObserver.disconnect();
+    globalObserver = null;
+  }
+
+  document.querySelectorAll('.chatvault-save-btn').forEach(btn => btn.remove());
+  document.querySelectorAll('.chatvault-inline-actions').forEach(el => el.remove());
+
+  if (!inlineButtonsEnabled()) {
+    return;
+  }
+
+  const scanMessages = () => {
+    const selectors = getSelectors();
+    document.querySelectorAll(selectors.container).forEach((message) => {
+      addSaveButton(message, () => createSaveButton());
+    });
+  };
   
-  // 既存のボタンコンテナに保存ボタンを追加
-  const existingButtons = document.querySelectorAll('.buttons-container-v2');
-  existingButtons.forEach(container => {
-    if (container.querySelector('.chatvault-save-btn')) return; // 既に処理済み
-    
-    // 既存のコンテナに保存ボタンを追加
-    const saveButton = createSaveButton();
-    
-    // コピーボタン要素を探して、その後（右側）に挿入
-    const copyButtonElement = container.querySelector('copy-button');
-    if (copyButtonElement) {
-      // コピーボタンの次の兄弟要素の前に挿入（つまりコピーボタンの直後）
-      const nextSibling = copyButtonElement.nextElementSibling;
-      if (nextSibling) {
-        container.insertBefore(saveButton, nextSibling);
-      } else {
-        container.appendChild(saveButton);
-      }
-    } else {
-      // その他メニューボタンのラッパーを探して、その前に挿入
-      const menuButtonWrapper = container.querySelector('.menu-button-wrapper');
-      if (menuButtonWrapper) {
-        container.insertBefore(saveButton, menuButtonWrapper);
-      } else {
-        // spacerの前に挿入
-        const spacer = container.querySelector('.spacer');
-        if (spacer) {
-          container.insertBefore(saveButton, spacer);
-        } else {
-          container.appendChild(saveButton);
-        }
-      }
-    }
-  });
-  
-  // 既存のツールバーに保存ボタンを追加（extended-response-panelなど）
-  const extendedPanels = document.querySelectorAll('extended-response-panel');
-  extendedPanels.forEach(panel => {
-    const existingToolbar = panel.querySelector('toolbar .action-buttons');
-    if (existingToolbar && !existingToolbar.querySelector('.chatvault-save-btn')) {
-      const saveButton = createSaveButton();
-      
-      // ツールバー用のスタイルを適用
-      saveButton.style.cssText += `
-        margin-left: 8px;
-        height: 36px;
-        min-width: 36px;
-        border-radius: 4px;
-      `;
-      
-      // 作成ボタンの後、閉じるボタンの前に挿入
-      const createButton = existingToolbar.querySelector('[data-test-id="create-button"]');
-      const closeButton = existingToolbar.querySelector('[data-test-id="close-button"]');
-      
-      if (createButton && closeButton) {
-        existingToolbar.insertBefore(saveButton, closeButton);
-      } else if (closeButton) {
-        existingToolbar.insertBefore(saveButton, closeButton);
-      } else {
-        existingToolbar.appendChild(saveButton);
-      }
-    }
-  });
+  scanMessages();
   
   // 動的コンテンツの監視
-  const observer = new MutationObserver((mutations) => {
+  globalObserver = new MutationObserver((mutations) => {
+    let shouldScan = false;
     mutations.forEach((mutation) => {
       if (mutation.type === 'childList') {
         mutation.addedNodes.forEach((node) => {
           if (node.nodeType === Node.ELEMENT_NODE) {
-            // 新しいボタンコンテナが追加された場合
-            const buttonContainers = node.matches && node.matches('.buttons-container-v2')
-              ? [node]
-              : node.querySelectorAll ? node.querySelectorAll('.buttons-container-v2') : [];
-
-            buttonContainers.forEach(container => {
-              if (container.querySelector('.chatvault-save-btn')) return; // 既に処理済み
-              
-              const saveButton = createSaveButton();
-              
-              // コピーボタン要素を探して、その後（右側）に挿入
-              const copyButtonElement = container.querySelector('copy-button');
-              if (copyButtonElement) {
-                // コピーボタンの次の兄弟要素の前に挿入（つまりコピーボタンの直後）
-                const nextSibling = copyButtonElement.nextElementSibling;
-                if (nextSibling) {
-                  container.insertBefore(saveButton, nextSibling);
-                } else {
-                  container.appendChild(saveButton);
-                }
-              } else {
-                // その他メニューボタンのラッパーを探して、その前に挿入
-                const menuButtonWrapper = container.querySelector('.menu-button-wrapper');
-                if (menuButtonWrapper) {
-                  container.insertBefore(saveButton, menuButtonWrapper);
-                } else {
-                  // spacerの前に挿入
-                  const spacer = container.querySelector('.spacer');
-                  if (spacer) {
-                    container.insertBefore(saveButton, spacer);
-                  } else {
-                    container.appendChild(saveButton);
-                  }
-                }
-              }
-            });
-            
-            // 新しいextended-response-panelが追加された場合
-            const extendedPanels = node.matches && node.matches('extended-response-panel')
-              ? [node]
-              : node.querySelectorAll ? node.querySelectorAll('extended-response-panel') : [];
-            
-            extendedPanels.forEach(panel => {
-              const existingToolbar = panel.querySelector('toolbar .action-buttons');
-              if (existingToolbar && !existingToolbar.querySelector('.chatvault-save-btn')) {
-                const saveButton = createSaveButton();
-                
-                saveButton.style.cssText += `
-                  margin-left: 8px;
-                  height: 36px;
-                  min-width: 36px;
-                  border-radius: 4px;
-                `;
-                
-                const createButton = existingToolbar.querySelector('[data-test-id="create-button"]');
-                const closeButton = existingToolbar.querySelector('[data-test-id="close-button"]');
-                
-                if (createButton && closeButton) {
-                  existingToolbar.insertBefore(saveButton, closeButton);
-                } else if (closeButton) {
-                  existingToolbar.insertBefore(saveButton, closeButton);
-                } else {
-                  existingToolbar.appendChild(saveButton);
-                }
-              }
-            });
+            shouldScan = true;
           }
         });
       }
     });
+    if (shouldScan && inlineButtonsEnabled()) {
+      scanMessages();
+    }
   });
   
-  observer.observe(document.body, {
+  globalObserver.observe(document.body, {
     childList: true,
     subtree: true
   });
