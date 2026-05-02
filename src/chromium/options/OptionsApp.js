@@ -13,6 +13,38 @@ const normalizeSaveMethod = (method) => {
   return ["filesystem", "auto", "downloads"].includes(method) ? method : "filesystem";
 };
 
+const DEFAULT_CHAT_NOTE_FORMAT = "# {title}\n\n{content}";
+
+const normalizeChatFolderPath = (path) => {
+  const raw = String(path ?? "").trim();
+  if (!raw || raw.includes("{title}")) return "";
+  return raw;
+};
+
+const normalizeChatNoteFormat = (format) => {
+  const normalized = String(format || DEFAULT_CHAT_NOTE_FORMAT).replace(/\\n/g, "\n");
+  const trimmed = normalized.trim();
+  if (!trimmed) return DEFAULT_CHAT_NOTE_FORMAT;
+
+  const lower = trimmed.toLowerCase();
+  const hasLegacyMetadata = [
+    "service: {service}",
+    "source: {url}",
+    "saved: {saved}",
+    "mode: {type}",
+    "- **saved**",
+    "- **service**",
+    "- **mode**",
+    "- **url**",
+    "- saved:",
+    "- service:",
+    "- mode:",
+    "- url:"
+  ].some((marker) => lower.includes(marker));
+
+  return hasLegacyMetadata ? DEFAULT_CHAT_NOTE_FORMAT : normalized;
+};
+
 const OptionsApp = () => {
 
   // Original settings
@@ -23,8 +55,8 @@ const OptionsApp = () => {
   const [showChatSettings, setShowChatSettings] = useState(false);
   const [defaultMode, setDefaultMode] = useState("single");
   const [showSaveButton, setShowSaveButton] = useState(true);
-  const [chatFolderPath, setChatFolderPath] = useState("ChatVault/{service}");
-  const [chatNoteFormat, setChatNoteFormat] = useState("---\ntitle: {title}\nservice: {service}\nsource: {url}\nsaved: {saved}\nmode: {type}\n---\n\n{content}");
+  const [chatFolderPath, setChatFolderPath] = useState("");
+  const [chatNoteFormat, setChatNoteFormat] = useState(DEFAULT_CHAT_NOTE_FORMAT);
   const [showPreview, setShowPreview] = useState(true);
   const [defaultMessageCount, setDefaultMessageCount] = useState(30);
   const [autoTagging, setAutoTagging] = useState(true);
@@ -47,6 +79,7 @@ const OptionsApp = () => {
         "defaultMode",
         "showSaveButton",
         "chatFolderPath",
+        "chatFolderPathExplicit",
         "chatNoteFormat",
         "showPreview",
         "defaultMessageCount",
@@ -76,11 +109,13 @@ const OptionsApp = () => {
         if (result.showSaveButton !== undefined) {
           setShowSaveButton(result.showSaveButton);
         }
-        if (result.chatFolderPath) {
-          setChatFolderPath(result.chatFolderPath);
+        if (result.chatFolderPathExplicit === true && result.chatFolderPath !== undefined) {
+          setChatFolderPath(normalizeChatFolderPath(result.chatFolderPath));
+        } else {
+          setChatFolderPath("");
         }
-        if (result.chatNoteFormat) {
-          setChatNoteFormat(result.chatNoteFormat);
+        if (result.chatNoteFormat !== undefined) {
+          setChatNoteFormat(normalizeChatNoteFormat(result.chatNoteFormat));
         }
         if (result.showPreview !== undefined) {
           setShowPreview(result.showPreview);
@@ -191,15 +226,8 @@ const OptionsApp = () => {
       return;
     }
 
-    // ChatVault specific validation
-    if (showChatSettings) {
-      const chatFolderPattern = /\{(title|service|date)\}/;
-      if (!chatFolderPattern.test(chatFolderPath)) {
-        toast.show('チャットフォルダパスには、少なくとも1つのプレースホルダー（{title}、{service}、または{date}）を含める必要があります', 'error');
-        return;
-      }
-    }
-
+    const normalizedChatFolderPath = normalizeChatFolderPath(chatFolderPath);
+    const normalizedChatNoteFormat = normalizeChatNoteFormat(chatNoteFormat);
 
     // Save the settings to browser storage
     chrome.storage.sync.set(
@@ -210,8 +238,9 @@ const OptionsApp = () => {
         showChatSettings: showChatSettings,
         defaultMode: normalizeMode(defaultMode),
         showSaveButton: showSaveButton,
-        chatFolderPath: chatFolderPath,
-        chatNoteFormat: chatNoteFormat,
+        chatFolderPath: normalizedChatFolderPath,
+        chatFolderPathExplicit: Boolean(normalizedChatFolderPath),
+        chatNoteFormat: normalizedChatNoteFormat,
         showPreview: showPreview,
         defaultMessageCount: defaultMessageCount,
         autoTagging: autoTagging,
@@ -224,7 +253,9 @@ const OptionsApp = () => {
           console.error('[ChatVault Options] Error saving settings:', chrome.runtime.lastError);
           toast.show('設定の保存に失敗しました: ' + chrome.runtime.lastError.message, 'error');
         } else {
-          toast.show(`設定を保存しました。保存先: "${chatFolderPath}"`, 'success');
+          setChatFolderPath(normalizedChatFolderPath);
+          setChatNoteFormat(normalizedChatNoteFormat);
+          toast.show(`設定を保存しました。保存先: ${normalizedChatFolderPath || 'Vault直下'}`, 'success');
           // Notify content scripts to update
           chrome.runtime.sendMessage({ action: 'saveSettings', settings: {} });
         }
@@ -307,18 +338,18 @@ const OptionsApp = () => {
             <div className="border-t border-gray-700 pt-4">
               <div className="mb-4">
                 <label htmlFor="chatFolderPath" className="block text-lg font-medium mb-1">
-                  チャットメッセージの保存先フォルダ
+                  チャットメッセージの保存先サブフォルダ（任意）
                 </label>
                 <p className="text-sm text-gray-400 mb-2">
-                  ( 使用可能なプレースホルダー: {'{service}'}, {'{title}'}, {'{date}'} )
+                  ( 空欄ならVault直下に保存します。使用可能なプレースホルダー: {'{service}'}, {'{date}'} )
                 </p>
                 <input
                   type="text"
                   id="chatFolderPath"
                   className="w-full p-2 bg-gray-700 rounded border border-gray-600 focus:outline-none focus:ring-2 focus:ring-purple-400"
                   value={chatFolderPath}
-                  onChange={(e) => setChatFolderPath(e.target.value)}
-                  placeholder={"ChatVault/" + '{' + 'service' + '}' + "/" + '{' + 'title' + '}'}
+                  onChange={(e) => setChatFolderPath(normalizeChatFolderPath(e.target.value))}
+                  placeholder="空欄ならVault直下"
                 />
               </div>
 
@@ -452,12 +483,11 @@ const OptionsApp = () => {
                   チャットノートフォーマット
                 </label>
                 <p className="text-sm text-gray-400 mb-2">
-                  ( 使用可能なプレースホルダー: {'{title}'}, {'{content}'}, {'{url}'}, {'{date}'}, {'{service}'} )
+                  ( 標準はタイトルの直後に本文だけを保存します )
                 </p>
                 <div className="flex gap-2 my-2">
-                    <button onClick={() => setChatNoteFormat('---\ntitle: {title}\nservice: {service}\nsource: {url}\nsaved: {saved}\nmode: {type}\n---\n\n{content}')} className="px-3 py-1 bg-indigo-600 hover:bg-indigo-700 text-white text-sm rounded-md">デフォルト</button>
-                    <button onClick={() => setChatNoteFormat('---\ntitle: {title}\nservice: {service}\nsource: {url}\nsaved: {saved}\nmode: {type}\ntags: [ai-chat, {service}]\n---\n\n# {title}\n\n{content}')} className="px-3 py-1 bg-indigo-600 hover:bg-indigo-700 text-white text-sm rounded-md">タグ付き</button>
-                    <button onClick={() => setChatNoteFormat('# {title}\\n\\n- **Saved**: {saved}\\n- **Service**: {service}\\n- **Mode**: {type}\\n- **URL**: [{url}]({url})\\n\\n---\\n\\n{content}')} className="px-3 py-1 bg-indigo-600 hover:bg-indigo-700 text-white text-sm rounded-md">シンプル</button>
+                    <button onClick={() => setChatNoteFormat(DEFAULT_CHAT_NOTE_FORMAT)} className="px-3 py-1 bg-indigo-600 hover:bg-indigo-700 text-white text-sm rounded-md">タイトル+本文</button>
+                    <button onClick={() => setChatNoteFormat('{content}')} className="px-3 py-1 bg-indigo-600 hover:bg-indigo-700 text-white text-sm rounded-md">本文のみ</button>
                 </div>
                 <textarea
                   id="chatNoteFormat"

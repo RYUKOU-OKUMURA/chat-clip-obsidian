@@ -2,12 +2,59 @@
 import { getSelectors } from './checks.js';
 import { toMarkdownIfHtml } from './markdown.js';
 
+function getContentElement(messageElement) {
+  const selectors = getSelectors();
+  if (messageElement.matches?.(selectors.content)) return messageElement;
+  return messageElement.querySelector?.(selectors.content) || messageElement;
+}
+
+function cleanClone(element) {
+  const cloned = element.cloneNode(true);
+  cloned.querySelectorAll && cloned.querySelectorAll([
+    '.chatvault-save-btn',
+    '.chatvault-inline-actions',
+    '.buttons-container-v2',
+    '[data-test-id="copy-button"]',
+    '[data-test-id="share-and-export-menu-button"]',
+    '[data-test-id="more-menu-button"]',
+    'thumb-up-button',
+    'thumb-down-button',
+    'regenerate-button',
+    'copy-button',
+    'button',
+    'mat-icon'
+  ].join(', ')).forEach(el => el.remove());
+  return cloned;
+}
+
+function resolveCaptureRoot(element) {
+  if (element.closest?.('message-content')) return element.closest('message-content');
+  if (element.matches?.('message-content')) return element;
+  if (element.closest?.('.user-message')) return element.closest('.user-message');
+  if (element.matches?.('.user-message')) return element;
+  if (element.closest?.('.model-response-text')) {
+    return element.closest('message-content') || element.closest('.model-response-text');
+  }
+  return element;
+}
+
+function getCaptureElements() {
+  const selectors = getSelectors();
+  const seen = new Set();
+  return Array.from(document.querySelectorAll(selectors.container))
+    .map(resolveCaptureRoot)
+    .filter((element) => {
+      if (!element || seen.has(element)) return false;
+      seen.add(element);
+      return Boolean((element.textContent || '').trim());
+    });
+}
+
 export function extractSingleMessage(messageElement) {
+  const selectors = getSelectors();
   try {
-    const selectors = getSelectors();
-    let contentEl = messageElement.querySelector(selectors.content) || messageElement;
-    const cloned = contentEl.cloneNode(true);
-    cloned.querySelectorAll && cloned.querySelectorAll('.chatvault-save-btn').forEach(el => el.remove());
+    let contentEl = getContentElement(messageElement);
+    const cloned = cleanClone(contentEl);
     const html = (cloned.innerHTML || '').trim();
     const raw = html || (cloned.textContent || '').trim();
     
@@ -64,8 +111,8 @@ export function captureMessages(mode, count = null) {
   const selectors = getSelectors();
   
   // 通常のメッセージを取得
-  const normalMessages = Array.from(document.querySelectorAll(selectors.container)).map((msg) => {
-    const contentEl = msg.querySelector(selectors.content) || msg;
+  const normalMessages = getCaptureElements().map((msg) => {
+    const contentEl = getContentElement(msg);
     
     // ロールを判定
     let role = 'assistant';
@@ -78,10 +125,11 @@ export function captureMessages(mode, count = null) {
       }
     }
     
-    const html = contentEl ? contentEl.innerHTML : '';
+    const cloned = contentEl ? cleanClone(contentEl) : null;
+    const html = cloned ? cloned.innerHTML : '';
     return {
       speaker: role === 'user' ? 'User' : 'Assistant',
-      content: html ? toMarkdownIfHtml(html) : (contentEl?.textContent?.trim() || '')
+      content: html ? toMarkdownIfHtml(html) : (cloned?.textContent?.trim() || '')
     };
   });
   

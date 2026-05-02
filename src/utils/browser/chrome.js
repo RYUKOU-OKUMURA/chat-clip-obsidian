@@ -49,7 +49,10 @@ export function createTab(url, options = {}) {
 
 export function removeTab(tabId) {
   return new Promise((resolve) => {
-    chrome.tabs.remove(tabId, () => resolve());
+    chrome.tabs.remove(tabId, () => {
+      void chrome.runtime.lastError;
+      resolve();
+    });
   });
 }
 
@@ -66,10 +69,11 @@ export async function openUrlWithAutoClose(url, delayMs = 3000, options = {}) {
   const tab = await createTab(url, options);
   if (tab?.id) {
     setTimeout(() => {
-      chrome.tabs.remove(tab.id, () => {});
+      chrome.tabs.remove(tab.id, () => {
+        void chrome.runtime.lastError;
+      });
     }, delayMs);
   }
   return tab;
 }
-
 

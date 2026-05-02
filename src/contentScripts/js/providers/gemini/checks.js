@@ -23,9 +23,12 @@ export function getSelectors() {
 
   // メッセージコンテンツ
   const content = [
+    'message-content',
+    '[id^="message-content-id-"]',
     '.markdown',
     '.markdown-main-panel',
     '.model-response-text',
+    '.response-container-content',
     '[class*="markdown"]'
   ].join(', ');
 

@@ -112,25 +112,85 @@ function createSaveButton() {
   return button;
 }
 
+function isVisibleElement(element) {
+  if (!element || !(element instanceof HTMLElement)) return false;
+  const style = window.getComputedStyle ? window.getComputedStyle(element) : null;
+  if (style && (style.display === 'none' || style.visibility === 'hidden')) return false;
+  const rect = element.getBoundingClientRect?.();
+  return !rect || rect.width > 0 || rect.height > 0;
+}
+
+function getContentElement(messageElement) {
+  const selectors = getSelectors();
+  if (messageElement.matches?.(selectors.content)) return messageElement;
+  return messageElement.querySelector?.(selectors.content) || messageElement;
+}
+
+function hasMessageContent(messageElement) {
+  const contentElement = getContentElement(messageElement);
+  return Boolean((contentElement?.textContent || '').trim());
+}
+
+function findBestMessageInTurn(turnElement) {
+  if (!turnElement) return null;
+  const candidates = [];
+  if (turnElement.matches?.('[data-message-author-role]')) {
+    candidates.push(turnElement);
+  }
+  candidates.push(...Array.from(turnElement.querySelectorAll?.('[data-message-author-role]') || []));
+
+  const visibleCandidates = candidates.filter((candidate) => isVisibleElement(candidate) && hasMessageContent(candidate));
+  const assistantMessages = visibleCandidates.filter((candidate) => candidate.getAttribute('data-message-author-role') === 'assistant');
+  return assistantMessages[assistantMessages.length - 1] || visibleCandidates[visibleCandidates.length - 1] || null;
+}
+
+function getConversationTurn(element) {
+  return element.closest?.('[data-testid^="conversation-turn-"], .conversation-turn') || null;
+}
+
+function resolveMessageRoot(messageElement) {
+  const selectors = getSelectors();
+  const turn = getConversationTurn(messageElement);
+  if (turn) {
+    return findBestMessageInTurn(turn) || messageElement.closest?.(selectors.container) || messageElement;
+  }
+  if (messageElement.matches?.(selectors.container)) return messageElement;
+  return messageElement.closest?.(selectors.container)
+    || messageElement.querySelector?.(selectors.container)
+    || messageElement;
+}
+
+function getButtonScope(messageRoot) {
+  return getConversationTurn(messageRoot) || messageRoot;
+}
+
+function findActionContainer(messageRoot) {
+  const scope = getButtonScope(messageRoot);
+  const copyButton = scope.querySelector?.('[data-testid="copy-turn-action-button"]')
+    || messageRoot.querySelector?.('[data-testid="copy-turn-action-button"]');
+  return copyButton?.parentElement || null;
+}
 
 function addSaveButton(messageElement, createSaveButton) {
   if (!inlineButtonsEnabled()) {
     return { added: false, button: null, target: null };
   }
 
-  const selectors = getSelectors();
-  const root = messageElement.matches?.(selectors.container)
-    ? messageElement
-    : (messageElement.closest?.(selectors.container) || messageElement.querySelector?.(selectors.container) || messageElement);
+  const root = resolveMessageRoot(messageElement);
+  if (!root) {
+    return { added: false, button: null, target: null };
+  }
 
-  // 既存のボタンをチェックして重複を防ぐ
-  const existingButton = root.querySelector('.chatvault-save-btn');
+  // 既存のボタンを会話ターン単位でチェックして重複を防ぐ
+  const scope = getButtonScope(root);
+  const existingButton = scope.querySelector?.('.chatvault-save-btn') || root.querySelector('.chatvault-save-btn');
   if (existingButton) {
     return { added: false, button: existingButton, target: existingButton.parentElement };
   }
 
   const button = createSaveButton();
-  const contentElement = findContentElement(root) || createFallbackActionContainer(root);
+  button.__chatvaultMessageElement = root;
+  const contentElement = findActionContainer(root) || createFallbackActionContainer(root);
 
   return addButtonToElement(contentElement, button);
 }
@@ -340,8 +400,17 @@ function retryAddButton(messageElement, button) {
 function resolveMessageElementFromButton(btn) {
   try {
     const selectors = getSelectors();
+    if (btn.__chatvaultMessageElement?.isConnected) {
+      return btn.__chatvaultMessageElement;
+    }
     
     // 1) ボタンから最も近いメッセージコンテナを探す
+    const turn = getConversationTurn(btn);
+    if (turn) {
+      const root = findBestMessageInTurn(turn);
+      if (root) return root;
+    }
+
     let messageEl = btn.closest(selectors.container);
     if (messageEl) return messageEl;
     

@@ -180,19 +180,7 @@ function App() {
       const date = new Date().toISOString().split('T')[0];
       const chatTitle = title || `${service} Chat - ${date}`;
 
-      let preview = `---
-title: ${chatTitle}
-date: ${date}
-service: ${service}
-url: ${pageInfo.url}
-`;
-      if (autoTagging) {
-        preview += `tags: [ai-chat, ${service.toLowerCase()}]
-`;
-      }
-      preview += `---
-
-`;
+      let preview = `# ${chatTitle}\n\n`;
 
       if (mode === 'single') {
         preview += '### Message Content\n\nCurrent message will be saved here.';
@@ -206,7 +194,7 @@ url: ${pageInfo.url}
 
       setChatPreviewContent(preview);
     }
-  }, [mode, isOnChatPage, pageInfo.url, title, messageCount, autoTagging]);
+  }, [mode, isOnChatPage, pageInfo.url, title, messageCount]);
 
   // Auto-hide notification
   useEffect(() => {

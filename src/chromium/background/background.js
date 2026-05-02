@@ -2,12 +2,13 @@
 import { notifyBasic } from '../../utils/notifications/notifications.js';
 import { toBase64Utf8 } from '../../utils/data/encoding.js';
 import { buildObsidianNewUri } from '../../utils/browser/obsidian.js';
-import { sanitizeForFilename } from '../../utils/data/validation.js';
+import { sanitizeForFilename, sanitizeRelativePath } from '../../utils/data/validation.js';
 import { createTab, openUrlWithAutoClose, getSync } from '../../utils/browser/chrome.js';
 import { createLogger } from '../../utils/logger.js';
 
 const log = createLogger('ChatVault Background');
 const SHORT_URI_CONTENT_LIMIT = 6000;
+const DEFAULT_CHAT_NOTE_FORMAT = '# {title}\n\n{content}';
 
 const SERVICE_LABELS = {
   chatgpt: 'ChatGPT',
@@ -29,11 +30,6 @@ function normalizeMode(mode) {
   return ['single', 'selection', 'recent', 'full', 'all'].includes(mode) ? (mode === 'all' ? 'full' : mode) : 'single';
 }
 
-function escapeFrontmatterValue(value) {
-  const text = String(value || '').replace(/"/g, '\\"');
-  return `"${text}"`;
-}
-
 function normalizeMarkdown(content) {
   return String(content || '')
     .replace(/\r\n/g, '\n')
@@ -53,23 +49,44 @@ function renderTemplate(template, values) {
     .replace(/\{content\}/g, values.content);
 }
 
+function normalizeNoteTemplate(template) {
+  const normalized = String(template || DEFAULT_CHAT_NOTE_FORMAT).replace(/\\n/g, '\n');
+  const trimmed = normalized.trim();
+  if (!trimmed) return DEFAULT_CHAT_NOTE_FORMAT;
+
+  const lower = trimmed.toLowerCase();
+  const hasLegacyMetadata = [
+    'service: {service}',
+    'source: {url}',
+    'saved: {saved}',
+    'mode: {type}',
+    '- **saved**',
+    '- **service**',
+    '- **mode**',
+    '- **url**',
+    '- saved:',
+    '- service:',
+    '- mode:',
+    '- url:'
+  ].some((marker) => lower.includes(marker));
+
+  return hasLegacyMetadata ? DEFAULT_CHAT_NOTE_FORMAT : normalized;
+}
+
 function buildDefaultNote({ title, serviceLabel, sourceUrl, saved, mode, markdown }) {
-  return [
-    '---',
-    `title: ${escapeFrontmatterValue(title || 'Untitled Conversation')}`,
-    `service: ${escapeFrontmatterValue(serviceLabel)}`,
-    `source: ${escapeFrontmatterValue(sourceUrl || '')}`,
-    `saved: ${escapeFrontmatterValue(saved)}`,
-    `mode: ${escapeFrontmatterValue(mode)}`,
-    '---',
-    '',
-    markdown
-  ].join('\n');
+  return renderTemplate(DEFAULT_CHAT_NOTE_FORMAT, {
+    title: title || 'Untitled Conversation',
+    service: serviceLabel,
+    url: sourceUrl || '',
+    date: saved.split('T')[0],
+    saved,
+    type: mode,
+    content: markdown
+  });
 }
 
 function buildNoteContent({ settings, title, serviceLabel, sourceUrl, saved, mode, markdown }) {
-  const defaultTemplate = '---\ntitle: {title}\nservice: {service}\nsource: {url}\nsaved: {saved}\nmode: {type}\n---\n\n{content}';
-  const template = settings.chatNoteFormat || defaultTemplate;
+  const template = normalizeNoteTemplate(settings.chatNoteFormat);
   if (!template.includes('{content}')) {
     return buildDefaultNote({ title, serviceLabel, sourceUrl, saved, mode, markdown });
   }
@@ -85,14 +102,24 @@ function buildNoteContent({ settings, title, serviceLabel, sourceUrl, saved, mod
   });
 }
 
+function normalizeChatFolderTemplate(template) {
+  const raw = String(template ?? '').trim();
+  if (!raw || raw.includes('{title}')) return '';
+  return raw;
+}
+
 function buildFolderPath(template, { serviceLabel, dateStr, sanitizedTitle, mode }) {
-  return String(template || 'ChatVault/{service}')
+  const folderTemplate = normalizeChatFolderTemplate(template);
+  if (!folderTemplate) return '';
+
+  const rendered = folderTemplate
     .replace(/\{service\}/g, serviceLabel)
     .replace(/\{date\}/g, dateStr)
     .replace(/\{title\}/g, sanitizedTitle)
     .replace(/\{type\}/g, mode)
     .replace(/\/+/g, '/')
     .replace(/^\/|\/$/g, '');
+  return sanitizeRelativePath(rendered, 'ChatVault');
 }
 
 function sendToTab(tabId, payload) {
@@ -131,7 +158,8 @@ async function saveViaFileSystem(tabId, content, relativePath) {
 async function saveViaDownloadAPI(content, filename, folderPath) {
   const base64Content = toBase64Utf8(content);
   const dataUrl = `data:text/markdown;charset=utf-8;base64,${base64Content}`;
-  const downloadPath = folderPath ? `${folderPath}/${filename}` : filename;
+  const safeFolderPath = folderPath ? sanitizeRelativePath(folderPath, 'ChatVault') : '';
+  const downloadPath = safeFolderPath ? `${safeFolderPath}/${filename}` : filename;
   const downloadId = await new Promise((resolve, reject) => {
     chrome.downloads.download({
       url: dataUrl,
@@ -174,6 +202,7 @@ async function saveMarkdownToObsidian({ markdown, service, title, sourceUrl, mod
   const settings = await getSync([
     'obsidianVault',
     'chatFolderPath',
+    'chatFolderPathExplicit',
     'chatNoteFormat',
     'saveMethod',
     'downloadsFolder'
@@ -187,13 +216,13 @@ async function saveMarkdownToObsidian({ markdown, service, title, sourceUrl, mod
   const noteTitle = title || `${serviceLabel} Chat - ${dateStr}`;
   const sanitizedTitle = sanitizeForFilename(noteTitle, 'untitled');
   const filename = `${dateStr}_${sanitizedTitle}.md`;
-  const folderPath = buildFolderPath(settings.chatFolderPath, {
+  const folderPath = buildFolderPath(settings.chatFolderPathExplicit === true ? settings.chatFolderPath : '', {
     serviceLabel,
     dateStr,
     sanitizedTitle,
     mode: normalizedMode
   });
-  const fullFilePath = `${folderPath}/${filename}`;
+  const fullFilePath = folderPath ? `${folderPath}/${filename}` : filename;
   const body = normalizeMarkdown(markdown);
   const fullContent = buildNoteContent({
     settings,
@@ -223,7 +252,9 @@ async function saveMarkdownToObsidian({ markdown, service, title, sourceUrl, mod
         method: 'filesystem',
         message,
         filename: finalName,
-        path: fsResult.finalFileName ? `${folderPath}/${fsResult.finalFileName}` : fullFilePath,
+        path: fsResult.finalFileName
+          ? (folderPath ? `${folderPath}/${fsResult.finalFileName}` : fsResult.finalFileName)
+          : fullFilePath,
         service: serviceLabel,
         title: noteTitle
       };
@@ -323,15 +354,7 @@ async function handleSaveMultipleMessages(request, sender, sendResponse) {
     }
 
     const mode = normalizeMode(request.messageType || request.mode || 'full');
-    const heading = mode === 'recent'
-      ? `# Last ${request.count || messages.length} Messages`
-      : mode === 'selection'
-        ? '# Selected Messages'
-        : '# Full Conversation';
-
     const body = [
-      heading,
-      '',
       ...messages.flatMap((msg, index) => {
         const speaker = msg.speaker || (msg.role === 'user' ? 'User' : 'Assistant');
         const content = normalizeMarkdown(msg.content || '');

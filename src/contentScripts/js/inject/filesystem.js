@@ -1,4 +1,5 @@
 // File System Access API helpers isolated from inject.js
+import { sanitizeRelativePath } from '../../../utils/data/validation.js';
 
 async function openDB() {
   return new Promise((resolve, reject) => {
@@ -93,7 +94,8 @@ export async function ensureDirectoryHandleIfNeeded() {
 
 export async function handleFileSystemSave(content, relativePath) {
   try {
-    console.log('[ChatVault] File System Access API保存を試行中:', relativePath);
+    const safeRelativePath = sanitizeRelativePath(relativePath, 'ChatVault');
+    console.log('[ChatVault] File System Access API保存を試行中:', safeRelativePath);
 
     let dirHandle = await loadDirectoryHandle();
     if (!dirHandle) {
@@ -108,7 +110,7 @@ export async function handleFileSystemSave(content, relativePath) {
       }
     }
 
-    const pathSegments = relativePath.split('/').filter(segment => segment);
+    const pathSegments = safeRelativePath.split('/').filter(segment => segment);
     let fileName = pathSegments.pop();
 
     let currentDir = dirHandle;

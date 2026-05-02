@@ -412,16 +412,23 @@ function addSaveButton(messageElement, createSaveButton) {
     return { added: false, button: null, target: null };
   }
 
+  const root = resolveMessageRoot(messageElement);
+  if (!root) {
+    return { added: false, button: null, target: null };
+  }
+
   // 既存のボタンチェック
-  const existingButton = messageElement.querySelector('.chatvault-save-btn');
+  const scope = getButtonScope(root);
+  const existingButton = scope.querySelector?.('.chatvault-save-btn') || root.querySelector?.('.chatvault-save-btn');
   if (existingButton) {
     return { added: false, button: existingButton, target: existingButton.parentElement };
   }
 
   const button = createSaveButton();
+  button.__chatvaultMessageElement = root;
 
   // ボタンコンテナを探す
-  const buttonContainer = messageElement.querySelector('.buttons-container-v2');
+  const buttonContainer = findActionContainer(root);
   if (buttonContainer) {
     // コピーボタンの前に挿入
     const copyButton = buttonContainer.querySelector('[data-test-id="copy-button"]');
@@ -433,7 +440,7 @@ function addSaveButton(messageElement, createSaveButton) {
     return { added: true, button: button, target: buttonContainer };
   }
 
-  const wrapper = createFallbackActionContainer(messageElement);
+  const wrapper = createFallbackActionContainer(root);
   wrapper.appendChild(button);
   return { added: true, button, target: wrapper };
 }
@@ -452,6 +459,93 @@ function createFallbackActionContainer(messageElement) {
     messageElement.appendChild(wrapper);
   }
   return wrapper;
+}
+
+function isVisibleElement(element) {
+  if (!element || !(element instanceof HTMLElement)) return false;
+  const style = window.getComputedStyle ? window.getComputedStyle(element) : null;
+  if (style && (style.display === 'none' || style.visibility === 'hidden')) return false;
+  const rect = element.getBoundingClientRect?.();
+  return !rect || rect.width > 0 || rect.height > 0;
+}
+
+function hasContent(element) {
+  return Boolean((element?.textContent || '').replace(/\s+/g, ' ').trim());
+}
+
+function findMessageInScope(scope) {
+  if (!scope) return null;
+  const selectors = getSelectors();
+  const candidates = [];
+  if (scope.matches?.(selectors.container)) {
+    candidates.push(scope);
+  }
+  candidates.push(...Array.from(scope.querySelectorAll?.(selectors.container) || []));
+  return candidates.find((candidate) => isVisibleElement(candidate) && hasContent(candidate))
+    || candidates.find((candidate) => hasContent(candidate))
+    || null;
+}
+
+function findNearbyMessageFromActions(actionsElement) {
+  let node = actionsElement;
+  while (node && node !== document.body) {
+    let sibling = node.previousElementSibling;
+    while (sibling) {
+      const found = findMessageInScope(sibling);
+      if (found) return found;
+      sibling = sibling.previousElementSibling;
+    }
+
+    const scope = node.closest?.('model-response, response-container, .response-container, .conversation-container, .conversation-turn');
+    const scopedMessage = findMessageInScope(scope);
+    if (scopedMessage) return scopedMessage;
+
+    node = node.parentElement;
+  }
+  return null;
+}
+
+function resolveMessageRoot(element) {
+  if (!element) return null;
+  if (element.__chatvaultMessageElement?.isConnected) return element.__chatvaultMessageElement;
+
+  const selectors = getSelectors();
+
+  if (element.matches?.('.buttons-container-v2') || element.querySelector?.('.buttons-container-v2')) {
+    const actions = element.matches?.('.buttons-container-v2')
+      ? element
+      : element.querySelector('.buttons-container-v2');
+    const nearby = findNearbyMessageFromActions(actions);
+    if (nearby) return nearby;
+  }
+
+  const messageContent = element.closest?.('message-content') || element.querySelector?.('message-content');
+  if (messageContent && hasContent(messageContent)) return messageContent;
+
+  const modelResponseText = element.closest?.('.model-response-text') || element.querySelector?.('.model-response-text');
+  if (modelResponseText && hasContent(modelResponseText)) {
+    return modelResponseText.closest?.('message-content') || modelResponseText;
+  }
+
+  const userMessage = element.closest?.('.user-message') || element.querySelector?.('.user-message');
+  if (userMessage && hasContent(userMessage)) return userMessage;
+
+  if (element.matches?.(selectors.container) && hasContent(element)) return element;
+
+  const scoped = findMessageInScope(element.closest?.('model-response, response-container, .response-container, .conversation-container, .conversation-turn') || element);
+  if (scoped) return scoped;
+
+  return findMessageInScope(document.body);
+}
+
+function getButtonScope(messageRoot) {
+  return messageRoot.closest?.('model-response, response-container, .response-container, .conversation-container, .conversation-turn')
+    || messageRoot;
+}
+
+function findActionContainer(messageRoot) {
+  const scope = getButtonScope(messageRoot);
+  return scope.querySelector?.('.buttons-container-v2') || messageRoot.querySelector?.('.buttons-container-v2') || null;
 }
 
 /**
@@ -509,6 +603,10 @@ function initializeGemini(createSaveButton) {
  */
 function resolveMessageElementFromButton(btn) {
   try {
+    if (btn.__chatvaultMessageElement?.isConnected) {
+      return btn.__chatvaultMessageElement;
+    }
+
     const selectors = getSelectors();
     
     // extended-response-panel内のツールバーから呼ばれた場合の特別処理
@@ -553,6 +651,9 @@ function resolveMessageElementFromButton(btn) {
     }
 
     if (buttonsContainer) {
+      const nearby = findNearbyMessageFromActions(buttonsContainer);
+      if (nearby) return nearby;
+
       const parent = buttonsContainer.parentElement;
       if (parent) {
         const withinParent = parent.querySelector(selectors.container);
