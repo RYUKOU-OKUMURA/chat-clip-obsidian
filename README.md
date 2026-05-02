@@ -1,4 +1,4 @@
-# Chat Clip Obsidian — AIチャットをObsidianへ
+# Chat Clip Obsidian
 
 ChatGPT、Claude、Google Geminiのチャット会話を、Chromium系ブラウザからObsidian VaultへMarkdownとして保存するChrome拡張機能。
 

@@ -21,7 +21,7 @@ import {
 import { buildChatSavePath } from '../../utils/chat/savePath.js';
 import { createLogger } from '../../utils/logger.js';
 
-const log = createLogger('ChatVault Background');
+const log = createLogger('Chat Clip Obsidian Background');
 const SHORT_URI_CONTENT_LIMIT = 6000;
 const DEFAULT_CHAT_NOTE_FORMAT = '# {title}\n\n{content}';
 

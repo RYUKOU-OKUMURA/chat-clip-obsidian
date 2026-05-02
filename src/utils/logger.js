@@ -1,9 +1,9 @@
 // Lightweight logger utility with a configurable scope prefix.
 // Usage:
 //   import { createLogger } from '../utils/logger.js';
-//   const log = createLogger('ChatVault Background');
+//   const log = createLogger('Chat Clip Obsidian Background');
 
-export function createLogger(scope = 'ChatVault') {
+export function createLogger(scope = 'Chat Clip Obsidian') {
   const prefix = `[${scope}]`;
   return {
     info: (...args) => console.info(prefix, ...args),
@@ -14,5 +14,5 @@ export function createLogger(scope = 'ChatVault') {
 }
 
 // Provide a default logger for convenience (content-script default)
-const defaultLog = createLogger('ChatVault');
+const defaultLog = createLogger('Chat Clip Obsidian');
 export default defaultLog;

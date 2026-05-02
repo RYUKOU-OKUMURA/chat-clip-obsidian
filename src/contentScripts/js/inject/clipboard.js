@@ -3,7 +3,7 @@ export async function copyToClipboard(content) {
   try {
     if (navigator.clipboard && navigator.clipboard.writeText) {
       await navigator.clipboard.writeText(content);
-      console.log('[ChatVault] navigator.clipboard を使用してコピー');
+      console.log('[Chat Clip Obsidian] navigator.clipboard を使用してコピー');
       return { success: true, method: 'navigator.clipboard' };
     }
     // Fallback: execCommand
@@ -18,12 +18,12 @@ export async function copyToClipboard(content) {
     const successful = document.execCommand('copy');
     document.body.removeChild(textArea);
     if (successful) {
-      console.log('[ChatVault] execCommand を使用してコピー');
+      console.log('[Chat Clip Obsidian] execCommand を使用してコピー');
       return { success: true, method: 'execCommand' };
     }
     throw new Error('execCommandコピーに失敗しました');
   } catch (error) {
-    console.error('[ChatVault] クリップボードコピー失敗:', error);
+    console.error('[Chat Clip Obsidian] クリップボードコピー失敗:', error);
     // エラーをログに記録し、失敗結果を返す
     return { success: false, error: error.message };
   }

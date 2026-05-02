@@ -80,7 +80,7 @@ function App() {
   const [errorMsg, setErrorMsg] = useState("");
   const [loading, setLoading] = useState(true);
 
-  // New ChatVault state
+  // New chat-save state
   const [mode, setMode] = useState('single');
   const [isOnChatPage, setIsOnChatPage] = useState(false);
   const [messageCount, setMessageCount] = useState(30);
@@ -177,7 +177,7 @@ function App() {
           setMode('single');
         }
       } catch (error) {
-        console.error("[ChatVault Popup] Error getting page info: ", error);
+        console.error("[Chat Clip Obsidian Popup] Error getting page info: ", error);
       } finally {
         setLoading(false);
       }
@@ -239,7 +239,7 @@ function App() {
           }
         });
       } catch (error) {
-        console.error("[ChatVault Popup] Error loading settings: ", error);
+        console.error("[Chat Clip Obsidian Popup] Error loading settings: ", error);
       } finally {
         setLoading(false);
       }
@@ -462,7 +462,7 @@ function App() {
       <div className={`px-4 py-3 border-b ${darkMode ? 'border-gray-700' : 'border-gray-200'}`}>
         <div className="flex items-center justify-between">
           <h1 className={`text-lg font-semibold ${darkMode ? 'text-white' : 'text-gray-900'}`}>
-            ChatVault クリップ
+            Chat Clip Obsidian
           </h1>
           <div className="flex items-center space-x-2">
             <span className={`text-xs px-2 py-1 rounded-full ${

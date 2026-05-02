@@ -13,7 +13,7 @@ export async function loadDirectoryHandle() {
   try {
     return await loadStoredDirectoryHandle();
   } catch (error) {
-    console.error('[ChatVault] ディレクトリハンドル読み込みエラー:', error);
+    console.error('[Chat Clip Obsidian] ディレクトリハンドル読み込みエラー:', error);
     return null;
   }
 }
@@ -22,7 +22,7 @@ export async function saveDirectoryHandle(handle) {
   try {
     await saveStoredDirectoryHandle(handle);
   } catch (error) {
-    console.error('[ChatVault] ディレクトリハンドル保存エラー:', error);
+    console.error('[Chat Clip Obsidian] ディレクトリハンドル保存エラー:', error);
   }
 }
 
@@ -83,7 +83,7 @@ export async function ensureDirectoryHandleIfNeeded(options = {}) {
     return { success: false, handleReady: false, method };
   } catch (e) {
     const message = e?.message || String(e);
-    console.warn('[ChatVault] ensureDirectoryHandleIfNeeded failed:', message);
+    console.warn('[Chat Clip Obsidian] ensureDirectoryHandleIfNeeded failed:', message);
     if (requireForFilesystem) {
       throw e;
     }
@@ -94,7 +94,7 @@ export async function ensureDirectoryHandleIfNeeded(options = {}) {
 export async function handleFileSystemSave(content, relativePath) {
   try {
     const safeRelativePath = sanitizeRelativePath(relativePath, 'ChatVault');
-    console.log('[ChatVault] File System Access API保存を試行中:', safeRelativePath);
+    console.log('[Chat Clip Obsidian] File System Access API保存を試行中:', safeRelativePath);
 
     let dirHandle = await loadDirectoryHandle();
     if (!dirHandle) {
@@ -115,14 +115,14 @@ export async function handleFileSystemSave(content, relativePath) {
     }
 
     const result = await writeMarkdownWithDirectoryHandle(dirHandle, content, safeRelativePath);
-    console.log('[ChatVault] File System Access API経由でファイルを保存しました:', result.finalFileName);
+    console.log('[Chat Clip Obsidian] File System Access API経由でファイルを保存しました:', result.finalFileName);
     return result;
     
   } catch (error) {
     if (isMissingDirectoryError(error)) {
       await removeDirectoryHandle();
     }
-    console.error('[ChatVault] File System Access APIエラー:', error);
+    console.error('[Chat Clip Obsidian] File System Access APIエラー:', error);
     return { success: false, error: error.message };
   }
 }

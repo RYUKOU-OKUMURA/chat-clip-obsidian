@@ -1,8 +1,8 @@
-# CLAUDE.md - ChatVault Clip 開発ガイド
+# CLAUDE.md - Chat Clip Obsidian 開発ガイド
 
 ## プロジェクト概要
 
-ChatVault Clipは、Web版LLMチャット（ChatGPT/Claude）の会話をワンクリックでObsidian VaultにMarkdownとして保存するChrome拡張機能です。既存のObsidian Web Clipperをベースに、AI チャット専用機能を追加しています。
+Chat Clip Obsidianは、Web版LLMチャット（ChatGPT/Claude）の会話をワンクリックでObsidian VaultにMarkdownとして保存するChrome拡張機能です。既存のObsidian Web Clipperをベースに、AI チャット専用機能を追加しています。
 
 ## プロジェクト構造
 
@@ -81,7 +81,7 @@ npm run build:firefox
 ### ⏳ 未実装
 - **utils/markdown.js**: HTML→Markdown変換
 - **background.js拡張**: メッセージ通信とObsidian URI処理
-- **ポップアップUI拡張**: ChatVault機能の追加
+- **ポップアップUI拡張**: AIチャット保存機能の追加
 - **services/claude.js**: Claude DOM抽出ロジック
 
 ## 主要機能の仕様
@@ -139,7 +139,7 @@ npm run build:firefox
 
 #### chromium/App.js
 - ポップアップUIのメインコンポーネント
-- Web Clipper機能 + ChatVault機能の統合UI
+- Web Clipper機能 + AIチャット保存機能の統合UI
 
 ## 次に実装すべきファイル優先度
 
@@ -152,11 +152,11 @@ npm run build:firefox
 ## デバッグ時のポイント
 
 ### Content Script
-- `chrome://extensions/` → ChatVault Clip → 詳細 → 「コンテンツスクリプトを検査」
+- `chrome://extensions/` → Chat Clip Obsidian → 詳細 → 「コンテンツスクリプトを検査」
 - Console.logでDOM要素の取得状況を確認
 
 ### Background Script  
-- `chrome://extensions/` → ChatVault Clip → 詳細 → 「サービスワーカーを検査」
+- `chrome://extensions/` → Chat Clip Obsidian → 詳細 → 「サービスワーカーを検査」
 - メッセージ通信のログを確認
 
 ### ポップアップ

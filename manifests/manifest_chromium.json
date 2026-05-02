@@ -1,6 +1,6 @@
 {
   "manifest_version": 3,
-  "name": "Chat Clip Obsidian — AIチャットをObsidianへ",
+  "name": "Chat Clip Obsidian",
   "version": "0.1.0",
   "description": "Save AI chat conversations from ChatGPT, Claude, and Google Gemini directly to your Obsidian vault.",
   "action": {

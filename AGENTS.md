@@ -1,8 +1,8 @@
-# AGENTS.md - ChatVault Clip 開発ガイド
+# AGENTS.md - Chat Clip Obsidian 開発ガイド
 
 ## プロジェクト概要
 
-ChatVault Clipは、Web版LLMチャット（MVP対象: ChatGPT / Claude / Gemini）の会話をObsidian VaultにMarkdownとして保存するChromium MV3拡張機能です。既存のObsidian Web Clipperをベースに、AIチャット専用機能を追加しています。
+Chat Clip Obsidianは、Web版LLMチャット（MVP対象: ChatGPT / Claude / Gemini）の会話をObsidian VaultにMarkdownとして保存するChromium MV3拡張機能です。既存のObsidian Web Clipperをベースに、AIチャット専用機能を追加しています。
 
 ## プロジェクト構造
 
@@ -127,7 +127,7 @@ npm run build:chromium
 
 #### chromium/App.js
 - ポップアップUIのメインコンポーネント
-- Web Clipper機能 + ChatVault機能の統合UI
+- Web Clipper機能 + AIチャット保存機能の統合UI
 
 ## 次に実施すべき優先度
 
@@ -139,11 +139,11 @@ npm run build:chromium
 ## デバッグ時のポイント
 
 ### Content Script
-- `chrome://extensions/` → ChatVault Clip → 詳細 → 「コンテンツスクリプトを検査」
+- `chrome://extensions/` → Chat Clip Obsidian → 詳細 → 「コンテンツスクリプトを検査」
 - Console.logでDOM要素の取得状況を確認
 
 ### Background Script  
-- `chrome://extensions/` → ChatVault Clip → 詳細 → 「サービスワーカーを検査」
+- `chrome://extensions/` → Chat Clip Obsidian → 詳細 → 「サービスワーカーを検査」
 - メッセージ通信のログを確認
 
 ### ポップアップ

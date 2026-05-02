@@ -1,5 +1,5 @@
 {
-  "name": "chatvault-clip",
+  "name": "chat-clip-obsidian",
   "version": "0.1.0",
   "description": "Chrome extension to save AI chat conversations to Obsidian vaults",
   "private": true,

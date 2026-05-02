@@ -138,7 +138,7 @@ const OptionsApp = () => {
   ]);
 
   useEffect(() => {
-    console.info('[ChatVault Options] Loading settings from storage...');
+    console.info('[Chat Clip Obsidian Options] Loading settings from storage...');
     getSync([
       "obsidianVault",
       "folderPath",
@@ -157,7 +157,7 @@ const OptionsApp = () => {
       "downloadsFolder",
       "selectedFolderPath"
     ]).then((result) => {
-      console.debug('[ChatVault Options] Loaded settings:', result);
+      console.debug('[Chat Clip Obsidian Options] Loaded settings:', result);
       const location = resolveSaveLocationSettings(result);
 
       setVault(result.obsidianVault || "");
@@ -200,7 +200,7 @@ const OptionsApp = () => {
       toast.show(`Vaultフォルダを選択しました: ${dirHandle.name}`, 'success');
     } catch (err) {
       if (err.name === 'AbortError') return;
-      console.error('[ChatVault Options] Error selecting folder:', err);
+      console.error('[Chat Clip Obsidian Options] Error selecting folder:', err);
       toast.show('フォルダ選択エラー: ' + err.message, 'error');
     }
   };
@@ -289,7 +289,7 @@ const OptionsApp = () => {
       },
       () => {
         if (chrome.runtime.lastError) {
-          console.error('[ChatVault Options] Error saving settings:', chrome.runtime.lastError);
+          console.error('[Chat Clip Obsidian Options] Error saving settings:', chrome.runtime.lastError);
           toast.show('設定の保存に失敗しました: ' + chrome.runtime.lastError.message, 'error');
           return;
         }
@@ -308,7 +308,7 @@ const OptionsApp = () => {
       <div className="container mx-auto p-8 max-w-5xl">
         <header className="mb-8">
           <h1 className="text-4xl font-bold text-purple-400 mb-2">
-            ChatVault Clip 設定
+            Chat Clip Obsidian 設定
           </h1>
           <p className="text-gray-400">
             チャットをどこへ保存するかを先に確認してから保存できます。
