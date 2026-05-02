@@ -5,6 +5,23 @@ import { getSelectors } from './checks.js';
 let globalTooltip = null;
 let globalObserver = null;
 
+const GEMINI_MESSAGE_CONTENT_SELECTOR = [
+  'message-content',
+  '[id^="message-content-id-"]',
+  '[id^="model-response-message-content"]',
+  '[inline-copy-host].markdown-main-panel',
+  '.model-response-text'
+].join(', ');
+
+const GEMINI_RESPONSE_SCOPE_SELECTOR = [
+  'model-response',
+  'response-container',
+  '.response-container',
+  '.conversation-container',
+  '.conversation-turn',
+  '.response-container-content'
+].join(', ');
+
 function inlineButtonsEnabled() {
   return window.__CHATVAULT_SHOW_SAVE_BUTTON__ !== false;
 }
@@ -417,26 +434,23 @@ function addSaveButton(messageElement, createSaveButton) {
     return { added: false, button: null, target: null };
   }
 
-  // 既存のボタンチェック
+  const buttonContainer = findActionContainer(root);
   const scope = getButtonScope(root);
-  const existingButton = scope.querySelector?.('.chatvault-save-btn') || root.querySelector?.('.chatvault-save-btn');
+  const existingButton = findExistingSaveButton(root, buttonContainer, scope);
   if (existingButton) {
+    attachMessageRootToButton(existingButton, root);
+    if (buttonContainer && !buttonContainer.contains(existingButton)) {
+      insertButtonIntoActionContainer(existingButton, buttonContainer);
+      cleanupEmptyFallbackContainers(root);
+    }
     return { added: false, button: existingButton, target: existingButton.parentElement };
   }
 
   const button = createSaveButton();
-  button.__chatvaultMessageElement = root;
+  attachMessageRootToButton(button, root);
 
-  // ボタンコンテナを探す
-  const buttonContainer = findActionContainer(root);
   if (buttonContainer) {
-    // コピーボタンの前に挿入
-    const copyButton = buttonContainer.querySelector('[data-test-id="copy-button"]');
-    if (copyButton) {
-      buttonContainer.insertBefore(button, copyButton);
-    } else {
-      buttonContainer.appendChild(button);
-    }
+    insertButtonIntoActionContainer(button, buttonContainer);
     return { added: true, button: button, target: buttonContainer };
   }
 
@@ -461,6 +475,60 @@ function createFallbackActionContainer(messageElement) {
   return wrapper;
 }
 
+function attachMessageRootToButton(button, root) {
+  button.__chatvaultMessageElement = root;
+  const responseId = getResponseIdFromMessage(root);
+  if (responseId) {
+    button.dataset.chatvaultResponseId = responseId;
+  }
+}
+
+function findExistingSaveButton(root, actionContainer, scope) {
+  const responseId = getResponseIdFromMessage(root);
+  const rootButtons = Array.from(root.querySelectorAll?.('.chatvault-save-btn') || []);
+  const actionButtons = actionContainer
+    ? Array.from(actionContainer.querySelectorAll?.('.chatvault-save-btn') || [])
+    : [];
+  const scopedButtons = scope && responseId
+    ? Array.from(scope.querySelectorAll?.('.chatvault-save-btn') || [])
+    : [];
+
+  const uniqueCandidates = [...new Set([...rootButtons, ...actionButtons, ...scopedButtons])];
+  return uniqueCandidates.find((button) => button.__chatvaultMessageElement === root)
+    || uniqueCandidates.find((button) => responseId && button.dataset.chatvaultResponseId === responseId)
+    || rootButtons[0]
+    || actionButtons[0]
+    || null;
+}
+
+function getDirectChild(container, descendant) {
+  let node = descendant;
+  while (node && node.parentElement && node.parentElement !== container) {
+    node = node.parentElement;
+  }
+  return node?.parentElement === container ? node : null;
+}
+
+function insertButtonIntoActionContainer(button, buttonContainer) {
+  const copyButton = buttonContainer.querySelector('[data-test-id="copy-button"]');
+  const copyHost = copyButton?.closest?.('copy-button') || copyButton;
+  const anchor = copyHost ? getDirectChild(buttonContainer, copyHost) : null;
+
+  if (anchor && anchor !== button) {
+    buttonContainer.insertBefore(button, anchor);
+  } else if (button.parentElement !== buttonContainer) {
+    buttonContainer.appendChild(button);
+  }
+}
+
+function cleanupEmptyFallbackContainers(root) {
+  root.querySelectorAll?.('.chatvault-inline-actions').forEach((wrapper) => {
+    if (!wrapper.querySelector('.chatvault-save-btn')) {
+      wrapper.remove();
+    }
+  });
+}
+
 function isVisibleElement(element) {
   if (!element || !(element instanceof HTMLElement)) return false;
   const style = window.getComputedStyle ? window.getComputedStyle(element) : null;
@@ -473,6 +541,96 @@ function hasContent(element) {
   return Boolean((element?.textContent || '').replace(/\s+/g, ' ').trim());
 }
 
+function extractGeminiResponseId(text) {
+  const match = String(text || '').match(/\b(r_[A-Za-z0-9_-]+)\b/);
+  return match ? match[1] : null;
+}
+
+function getResponseIdFromMessage(element) {
+  if (!element) return null;
+  const ownId = extractGeminiResponseId(element.id);
+  if (ownId) return ownId;
+
+  const contentElement = element.matches?.(GEMINI_MESSAGE_CONTENT_SELECTOR)
+    ? element
+    : element.querySelector?.(GEMINI_MESSAGE_CONTENT_SELECTOR);
+  return extractGeminiResponseId(contentElement?.id);
+}
+
+function getResponseIdFromActionContainer(element) {
+  if (!element) return null;
+  const ownJslog = element.getAttribute?.('jslog');
+  const ownId = extractGeminiResponseId(ownJslog);
+  if (ownId) return ownId;
+
+  const jslogElement = element.querySelector?.('[jslog*="r_"]');
+  return extractGeminiResponseId(jslogElement?.getAttribute('jslog'));
+}
+
+function findMessageByResponseId(responseId) {
+  if (!responseId) return null;
+  const selectors = getSelectors();
+  const candidates = Array.from(document.querySelectorAll(selectors.container));
+  return candidates.find((candidate) => (
+    getResponseIdFromMessage(candidate) === responseId &&
+    hasContent(candidate)
+  )) || null;
+}
+
+function findActionContainerByResponseId(responseId) {
+  if (!responseId) return null;
+  return Array.from(document.querySelectorAll('.buttons-container-v2'))
+    .find((container) => getResponseIdFromActionContainer(container) === responseId) || null;
+}
+
+function isActionContainerForMessage(container, messageRoot) {
+  if (!container) return false;
+  const messageResponseId = getResponseIdFromMessage(messageRoot);
+  const containerResponseId = getResponseIdFromActionContainer(container);
+  return !messageResponseId || !containerResponseId || messageResponseId === containerResponseId;
+}
+
+function findActionContainerInElement(element, messageRoot) {
+  if (!element) return null;
+  const container = element.matches?.('.buttons-container-v2')
+    ? element
+    : element.querySelector?.('.buttons-container-v2');
+  return isActionContainerForMessage(container, messageRoot) ? container : null;
+}
+
+function findNearbyActionContainerFromMessage(messageRoot) {
+  let node = messageRoot;
+  let depth = 0;
+
+  while (node && node !== document.body && depth < 8) {
+    const nested = findActionContainerInElement(node, messageRoot);
+    if (nested) return nested;
+
+    let sibling = node.nextElementSibling;
+    let siblingCount = 0;
+    while (sibling && siblingCount < 8) {
+      const found = findActionContainerInElement(sibling, messageRoot);
+      if (found) return found;
+      sibling = sibling.nextElementSibling;
+      siblingCount += 1;
+    }
+
+    sibling = node.previousElementSibling;
+    siblingCount = 0;
+    while (sibling && siblingCount < 8) {
+      const found = findActionContainerInElement(sibling, messageRoot);
+      if (found) return found;
+      sibling = sibling.previousElementSibling;
+      siblingCount += 1;
+    }
+
+    node = node.parentElement;
+    depth += 1;
+  }
+
+  return null;
+}
+
 function findMessageInScope(scope) {
   if (!scope) return null;
   const selectors = getSelectors();
@@ -481,12 +639,24 @@ function findMessageInScope(scope) {
     candidates.push(scope);
   }
   candidates.push(...Array.from(scope.querySelectorAll?.(selectors.container) || []));
-  return candidates.find((candidate) => isVisibleElement(candidate) && hasContent(candidate))
+  return candidates.find((candidate) => (
+    candidate.matches?.('[id^="model-response-message-content"], [inline-copy-host].markdown-main-panel, message-content') &&
+    isVisibleElement(candidate) &&
+    hasContent(candidate)
+  ))
+    || candidates.find((candidate) => (
+      candidate.matches?.('[id^="model-response-message-content"], [inline-copy-host].markdown-main-panel, message-content') &&
+      hasContent(candidate)
+    ))
+    || candidates.find((candidate) => isVisibleElement(candidate) && hasContent(candidate))
     || candidates.find((candidate) => hasContent(candidate))
     || null;
 }
 
 function findNearbyMessageFromActions(actionsElement) {
+  const byResponseId = findMessageByResponseId(getResponseIdFromActionContainer(actionsElement));
+  if (byResponseId) return byResponseId;
+
   let node = actionsElement;
   while (node && node !== document.body) {
     let sibling = node.previousElementSibling;
@@ -519,6 +689,10 @@ function resolveMessageRoot(element) {
     if (nearby) return nearby;
   }
 
+  const geminiMarkdownPanel = element.closest?.('[id^="model-response-message-content"], [inline-copy-host].markdown-main-panel')
+    || element.querySelector?.('[id^="model-response-message-content"], [inline-copy-host].markdown-main-panel');
+  if (geminiMarkdownPanel && hasContent(geminiMarkdownPanel)) return geminiMarkdownPanel;
+
   const messageContent = element.closest?.('message-content') || element.querySelector?.('message-content');
   if (messageContent && hasContent(messageContent)) return messageContent;
 
@@ -539,13 +713,23 @@ function resolveMessageRoot(element) {
 }
 
 function getButtonScope(messageRoot) {
-  return messageRoot.closest?.('model-response, response-container, .response-container, .conversation-container, .conversation-turn')
+  return messageRoot.closest?.(GEMINI_RESPONSE_SCOPE_SELECTOR)
     || messageRoot;
 }
 
 function findActionContainer(messageRoot) {
+  const responseId = getResponseIdFromMessage(messageRoot);
+  const byResponseId = findActionContainerByResponseId(responseId);
+  if (byResponseId) return byResponseId;
+
   const scope = getButtonScope(messageRoot);
-  return scope.querySelector?.('.buttons-container-v2') || messageRoot.querySelector?.('.buttons-container-v2') || null;
+  const scopedContainer = findActionContainerInElement(scope, messageRoot);
+  if (scopedContainer) return scopedContainer;
+
+  const nearbyContainer = findNearbyActionContainerFromMessage(messageRoot);
+  if (nearbyContainer) return nearbyContainer;
+
+  return findActionContainerInElement(messageRoot, messageRoot);
 }
 
 /**

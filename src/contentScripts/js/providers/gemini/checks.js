@@ -4,6 +4,8 @@ export function getSelectors() {
   const container = [
     'message-content',
     '[id^="message-content-id-"]',
+    '[id^="model-response-message-content"]',
+    '[inline-copy-host].markdown-main-panel',
     '.model-response-text',
     '.user-message'
   ].join(', ');
@@ -18,6 +20,8 @@ export function getSelectors() {
   const assistantMessage = [
     'message-content',
     '[id^="message-content-id-"]',
+    '[id^="model-response-message-content"]',
+    '[inline-copy-host].markdown-main-panel',
     '.model-response-text'
   ].join(', ');
 
@@ -25,6 +29,8 @@ export function getSelectors() {
   const content = [
     'message-content',
     '[id^="message-content-id-"]',
+    '[id^="model-response-message-content"]',
+    '[inline-copy-host].markdown-main-panel',
     '.markdown',
     '.markdown-main-panel',
     '.model-response-text',

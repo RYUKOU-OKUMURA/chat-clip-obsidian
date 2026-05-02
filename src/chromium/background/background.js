@@ -122,6 +122,129 @@ function buildFolderPath(template, { serviceLabel, dateStr, sanitizedTitle, mode
   return sanitizeRelativePath(rendered, 'ChatVault');
 }
 
+async function openDirectoryHandleDB() {
+  if (typeof indexedDB === 'undefined') {
+    throw new Error('IndexedDB is not available in the extension service worker');
+  }
+
+  return new Promise((resolve, reject) => {
+    const request = indexedDB.open('ChatVaultDB', 1);
+    request.onerror = () => reject(request.error);
+    request.onsuccess = () => resolve(request.result);
+    request.onupgradeneeded = (event) => {
+      const db = event.target.result;
+      if (!db.objectStoreNames.contains('handles')) {
+        db.createObjectStore('handles');
+      }
+    };
+  });
+}
+
+async function loadExtensionDirectoryHandle() {
+  const db = await openDirectoryHandleDB();
+  const tx = db.transaction(['handles'], 'readonly');
+  const store = tx.objectStore('handles');
+  const request = store.get('vaultDirectory');
+
+  return new Promise((resolve, reject) => {
+    request.onsuccess = () => {
+      db.close();
+      resolve(request.result || null);
+    };
+    request.onerror = () => {
+      db.close();
+      reject(request.error);
+    };
+  });
+}
+
+async function ensureExtensionDirectoryPermission(dirHandle) {
+  if (!dirHandle) {
+    throw new Error('Vaultフォルダが未設定です。OptionsでObsidian Vaultフォルダを選択してください。');
+  }
+
+  const current = await dirHandle.queryPermission?.({ mode: 'readwrite' });
+  if (current === 'granted') return;
+  throw new Error('Vaultフォルダの書き込み権限がありません。PopupまたはOptionsでVaultフォルダを再選択してください。');
+}
+
+async function writeMarkdownWithDirectoryHandle(dirHandle, content, relativePath) {
+  const safeRelativePath = sanitizeRelativePath(relativePath, 'ChatVault');
+  const pathSegments = safeRelativePath.split('/').filter(Boolean);
+  const requestedFileName = pathSegments.pop();
+
+  if (!requestedFileName) {
+    throw new Error('保存ファイル名を生成できませんでした。');
+  }
+
+  let currentDir = dirHandle;
+  for (const segment of pathSegments) {
+    currentDir = await currentDir.getDirectoryHandle(segment, { create: true });
+  }
+
+  let finalFileName = requestedFileName;
+  let wasRenamed = false;
+
+  try {
+    const existingHandle = await currentDir.getFileHandle(finalFileName, { create: false });
+    const existingFile = await existingHandle.getFile();
+    const existingContent = await existingFile.text();
+
+    if (existingContent === content) {
+      return {
+        success: true,
+        method: 'filesystem',
+        finalFileName,
+        originalFileName: requestedFileName,
+        isDuplicate: true,
+        skipped: true,
+        message: `既存ファイル「${finalFileName}」と同じ内容のため、保存をスキップしました。`
+      };
+    }
+
+    const baseName = requestedFileName.replace(/\.md$/, '');
+    let counter = 1;
+    while (true) {
+      const candidate = `${baseName}_${counter}.md`;
+      try {
+        await currentDir.getFileHandle(candidate, { create: false });
+        counter += 1;
+      } catch (_) {
+        finalFileName = candidate;
+        wasRenamed = true;
+        break;
+      }
+    }
+  } catch (_) {
+    // Original file does not exist.
+  }
+
+  const fileHandle = await currentDir.getFileHandle(finalFileName, { create: true });
+  const writable = await fileHandle.createWritable();
+  await writable.write(content);
+  await writable.close();
+
+  const result = {
+    success: true,
+    method: 'filesystem',
+    finalFileName,
+    originalFileName: requestedFileName
+  };
+
+  if (wasRenamed) {
+    result.wasRenamed = true;
+    result.message = `「${finalFileName}」として保存しました（重複回避のため名前を変更）`;
+  }
+
+  return result;
+}
+
+async function saveViaExtensionFileSystem(content, relativePath) {
+  const dirHandle = await loadExtensionDirectoryHandle();
+  await ensureExtensionDirectoryPermission(dirHandle);
+  return writeMarkdownWithDirectoryHandle(dirHandle, content, relativePath);
+}
+
 function sendToTab(tabId, payload) {
   return new Promise((resolve, reject) => {
     if (!tabId) {
@@ -198,7 +321,7 @@ async function saveViaDownloadAPI(content, filename, folderPath) {
   });
 }
 
-async function saveMarkdownToObsidian({ markdown, service, title, sourceUrl, mode, metadata = {}, sender }) {
+async function prepareMarkdownSave({ markdown, service, title, sourceUrl, mode, metadata = {} }) {
   const settings = await getSync([
     'obsidianVault',
     'chatFolderPath',
@@ -208,7 +331,6 @@ async function saveMarkdownToObsidian({ markdown, service, title, sourceUrl, mod
     'downloadsFolder'
   ]);
 
-  const tabId = sender?.tab?.id;
   const serviceLabel = getServiceLabel(service);
   const normalizedMode = normalizeMode(mode || metadata.type);
   const saved = new Date().toISOString();
@@ -237,11 +359,65 @@ async function saveMarkdownToObsidian({ markdown, service, title, sourceUrl, mod
   const vaultName = settings.obsidianVault || 'MyVault';
   const saveMethod = normalizeSaveMethod(settings.saveMethod);
   const downloadsFolder = settings.downloadsFolder || 'ChatVault';
+
+  return {
+    success: true,
+    fullContent,
+    fullFilePath,
+    filename,
+    folderPath,
+    service: serviceLabel,
+    serviceLabel,
+    title: noteTitle,
+    sourceUrl,
+    mode: normalizedMode,
+    vaultName,
+    saveMethod,
+    downloadsFolder
+  };
+}
+
+async function saveMarkdownToObsidian({ markdown, service, title, sourceUrl, mode, metadata = {}, sender }) {
+  const prepared = await prepareMarkdownSave({ markdown, service, title, sourceUrl, mode, metadata });
+  const {
+    fullContent,
+    fullFilePath,
+    filename,
+    folderPath,
+    serviceLabel,
+    title: noteTitle,
+    mode: normalizedMode,
+    vaultName,
+    saveMethod,
+    downloadsFolder
+  } = prepared;
+  const tabId = sender?.tab?.id;
   const failures = [];
 
   log.info('Saving markdown', { service: serviceLabel, mode: normalizedMode, saveMethod, fullFilePath });
 
   if (saveMethod === 'filesystem' || saveMethod === 'auto') {
+    try {
+      const fsResult = await saveViaExtensionFileSystem(fullContent, fullFilePath);
+      const finalName = fsResult.finalFileName || filename;
+      const message = fsResult.message || `Saved directly to your Obsidian vault: ${finalName}`;
+      notifyBasic({ message });
+      return {
+        success: true,
+        method: 'filesystem',
+        message,
+        filename: finalName,
+        path: fsResult.finalFileName
+          ? (folderPath ? `${folderPath}/${fsResult.finalFileName}` : fsResult.finalFileName)
+          : fullFilePath,
+        service: serviceLabel,
+        title: noteTitle
+      };
+    } catch (error) {
+      failures.push(`extension-filesystem: ${error.message}`);
+      log.warn('Extension File System Access save failed, trying content tab handle:', error);
+    }
+
     try {
       const fsResult = await saveViaFileSystem(tabId, fullContent, fullFilePath);
       const finalName = fsResult.finalFileName || filename;
@@ -259,8 +435,8 @@ async function saveMarkdownToObsidian({ markdown, service, title, sourceUrl, mod
         title: noteTitle
       };
     } catch (error) {
-      failures.push(`filesystem: ${error.message}`);
-      log.warn('File System Access save failed, falling back:', error);
+      failures.push(`tab-filesystem: ${error.message}`);
+      log.warn('Content tab File System Access save failed, falling back:', error);
     }
   }
 
@@ -325,6 +501,17 @@ async function saveMarkdownToObsidian({ markdown, service, title, sourceUrl, mod
   }
 }
 
+function formatMessagesAsMarkdown(messages) {
+  return [
+    ...messages.flatMap((msg, index) => {
+      const speaker = msg.speaker || (msg.role === 'user' ? 'User' : 'Assistant');
+      const content = normalizeMarkdown(msg.content || '');
+      const separator = index < messages.length - 1 ? ['','---',''] : [''];
+      return [`### ${speaker}`, '', content, ...separator];
+    })
+  ].join('\n');
+}
+
 async function handleSaveMessage(request, sender, sendResponse) {
   try {
     const isSelection = request.metadata?.type === 'selection' || request.messageType === 'selection';
@@ -354,14 +541,7 @@ async function handleSaveMultipleMessages(request, sender, sendResponse) {
     }
 
     const mode = normalizeMode(request.messageType || request.mode || 'full');
-    const body = [
-      ...messages.flatMap((msg, index) => {
-        const speaker = msg.speaker || (msg.role === 'user' ? 'User' : 'Assistant');
-        const content = normalizeMarkdown(msg.content || '');
-        const separator = index < messages.length - 1 ? ['','---',''] : [''];
-        return [`### ${speaker}`, '', content, ...separator];
-      })
-    ].join('\n');
+    const body = formatMessagesAsMarkdown(messages);
 
     const response = await saveMarkdownToObsidian({
       markdown: body,
@@ -393,6 +573,49 @@ async function handleSaveSelection(request, sender, sendResponse) {
   }, sender, sendResponse);
 }
 
+async function handlePrepareMessage(request, sender, sendResponse) {
+  try {
+    const isSelection = request.metadata?.type === 'selection' || request.messageType === 'selection';
+    const mode = normalizeMode(isSelection ? 'selection' : request.messageType || 'single');
+    const response = await prepareMarkdownSave({
+      markdown: request.messageContent || '',
+      service: request.service,
+      title: request.conversationTitle,
+      sourceUrl: request.sourceUrl || request.metadata?.url || sender.tab?.url || '',
+      mode,
+      metadata: request.metadata || {}
+    });
+    sendResponse(response);
+  } catch (error) {
+    log.error('Error preparing message:', error);
+    sendResponse({ success: false, error: error.message, errorCode: 'PREPARE_FAILED' });
+  }
+}
+
+async function handlePrepareMultipleMessages(request, sender, sendResponse) {
+  try {
+    const messages = Array.isArray(request.messages) ? request.messages : [];
+    if (!messages.length) {
+      sendResponse({ success: false, error: 'No messages to save' });
+      return;
+    }
+
+    const mode = normalizeMode(request.messageType || request.mode || 'full');
+    const response = await prepareMarkdownSave({
+      markdown: formatMessagesAsMarkdown(messages),
+      service: request.service,
+      title: request.conversationTitle,
+      sourceUrl: request.sourceUrl || sender.tab?.url || '',
+      mode,
+      metadata: { count: request.count }
+    });
+    sendResponse(response);
+  } catch (error) {
+    log.error('Error preparing multiple messages:', error);
+    sendResponse({ success: false, error: error.message, errorCode: 'PREPARE_FAILED' });
+  }
+}
+
 function getSupportedHostnames() {
   const manifest = chrome.runtime.getManifest();
   return (manifest.host_permissions || [])
@@ -419,7 +642,10 @@ function notifySupportedTabsOfSettings() {
         shouldNotify = supportedHosts.some((host) => tab.url.includes(host));
       }
       if (shouldNotify) {
-        chrome.tabs.sendMessage(tab.id, { action: 'updateSettings' });
+        chrome.tabs.sendMessage(tab.id, { action: 'updateSettings' }, () => {
+          // Consume lastError for supported hosts where the content script is not currently injected.
+          void chrome.runtime.lastError;
+        });
       }
     });
   });
@@ -520,6 +746,14 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
 
     case 'saveMultipleMessages':
       handleSaveMultipleMessages(request, sender, sendResponse);
+      return true;
+
+    case 'prepareSingleMessage':
+      handlePrepareMessage(request, sender, sendResponse);
+      return true;
+
+    case 'prepareMultipleMessages':
+      handlePrepareMultipleMessages(request, sender, sendResponse);
       return true;
 
     case 'saveSelection':

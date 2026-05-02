@@ -54,7 +54,51 @@ export async function saveDirectoryHandle(handle) {
   }
 }
 
-export async function ensureDirectoryHandleIfNeeded() {
+async function removeDirectoryHandle() {
+  try {
+    const db = await openDB();
+    const tx = db.transaction(['handles'], 'readwrite');
+    const store = tx.objectStore('handles');
+    await new Promise((resolve, reject) => {
+      const req = store.delete('vaultDirectory');
+      req.onsuccess = () => resolve();
+      req.onerror = () => reject(req.error);
+    });
+    db.close();
+  } catch (error) {
+    console.error('[ChatVault] ディレクトリハンドル削除エラー:', error);
+  }
+}
+
+async function isDirectoryHandleUsable(handle) {
+  if (!handle) return false;
+
+  try {
+    if (typeof handle.values === 'function') {
+      for await (const _entry of handle.values()) {
+        break;
+      }
+    }
+    return true;
+  } catch (error) {
+    const message = error?.message || '';
+    if (
+      error?.name === 'NotFoundError' ||
+      message.includes('could not be found') ||
+      message.includes('not be found')
+    ) {
+      return false;
+    }
+    throw error;
+  }
+}
+
+export async function ensureDirectoryHandleIfNeeded(options = {}) {
+  const {
+    promptForAuto = false,
+    requireForFilesystem = false
+  } = options;
+
   try {
     // Guard against missing chrome or storage API (e.g., context invalidated)
     const hasStorageGet = typeof chrome === 'object' && chrome && chrome.storage && chrome.storage.sync && typeof chrome.storage.sync.get === 'function';
@@ -73,22 +117,44 @@ export async function ensureDirectoryHandleIfNeeded() {
     }
 
     if (method !== 'filesystem' && method !== 'auto') return;
+    const shouldPrompt = method === 'filesystem' || (method === 'auto' && promptForAuto);
 
     const existing = await loadDirectoryHandle();
     if (existing) {
       const perm = await existing.queryPermission?.({ mode: 'readwrite' });
-      if (perm === 'granted') return;
+      if (perm === 'granted') {
+        if (await isDirectoryHandleUsable(existing)) {
+          return { success: true, handleReady: true, method };
+        }
+        await removeDirectoryHandle();
+      }
       const req = await existing.requestPermission?.({ mode: 'readwrite' });
-      if (req === 'granted') return;
+      if (req === 'granted') {
+        if (await isDirectoryHandleUsable(existing)) {
+          return { success: true, handleReady: true, method };
+        }
+        await removeDirectoryHandle();
+      }
     }
 
-    if (typeof window.showDirectoryPicker === 'function' && method !== 'auto') {
+    if (typeof window.showDirectoryPicker === 'function' && shouldPrompt) {
       const dir = await window.showDirectoryPicker({ mode: 'readwrite' });
       await saveDirectoryHandle(dir);
+      return { success: true, handleReady: true, method, selected: true };
     }
+
+    if (requireForFilesystem && method === 'filesystem') {
+      throw new Error('Vaultフォルダが未選択です。このページで保存ボタンを押してフォルダ選択を許可するか、OptionsでVaultフォルダを選択してください。');
+    }
+
+    return { success: false, handleReady: false, method };
   } catch (e) {
-    // Non-fatal: background will fall back to other save methods
-    console.warn('[ChatVault] ensureDirectoryHandleIfNeeded skipped quietly:', e?.message || e);
+    const message = e?.message || String(e);
+    console.warn('[ChatVault] ensureDirectoryHandleIfNeeded failed:', message);
+    if (requireForFilesystem) {
+      throw e;
+    }
+    return { success: false, handleReady: false, error: message };
   }
 }
 
@@ -108,6 +174,11 @@ export async function handleFileSystemSave(content, relativePath) {
       if (newPermission !== 'granted') {
         throw new Error('ファイルシステム権限が拒否されました');
       }
+    }
+
+    if (!(await isDirectoryHandleUsable(dirHandle))) {
+      await removeDirectoryHandle();
+      throw new Error('保存先フォルダが見つかりません。Vaultフォルダを再選択してください。');
     }
 
     const pathSegments = safeRelativePath.split('/').filter(segment => segment);
@@ -186,6 +257,14 @@ export async function handleFileSystemSave(content, relativePath) {
     return result;
     
   } catch (error) {
+    const message = error?.message || '';
+    if (
+      error?.name === 'NotFoundError' ||
+      message.includes('could not be found') ||
+      message.includes('not be found')
+    ) {
+      await removeDirectoryHandle();
+    }
     console.error('[ChatVault] File System Access APIエラー:', error);
     return { success: false, error: error.message };
   }

@@ -1,5 +1,6 @@
 import { captureMessages as captureChatGPT } from '../contentScripts/js/providers/chatgpt/text.js';
 import { captureMessages as captureGemini, extractSingleMessage as extractGeminiSingle } from '../contentScripts/js/providers/gemini/text.js';
+import { addSaveButton as addGeminiSaveButton, createSaveButton as createGeminiSaveButton, resolveMessageElementFromButton as resolveGeminiMessageFromButton } from '../contentScripts/js/providers/gemini/ui.js';
 
 describe('provider capture contract', () => {
   afterEach(() => {
@@ -101,5 +102,62 @@ describe('provider capture contract', () => {
 
     expect(result.role).toBe('assistant');
     expect(result.content).toBe('Saved body');
+  });
+
+  test('Gemini captureMessages supports current markdown-main-panel response element', () => {
+    document.title = 'Research - Gemini';
+    document.body.innerHTML = `
+      <div
+        inline-copy-host
+        class="markdown markdown-main-panel stronger"
+        id="model-response-message-contentr_8bb3df8eb9b632b2"
+      >
+        <p>Gemini body</p>
+        <h3>Pattern 1</h3>
+      </div>
+    `;
+
+    const all = captureGemini('all');
+
+    expect(all.success).toBe(true);
+    expect(all.messages).toEqual([
+      { speaker: 'Assistant', content: 'Gemini body\n\n### Pattern 1' }
+    ]);
+  });
+
+  test('Gemini save button inserts into native buttons-container before copy-button host', () => {
+    document.body.innerHTML = `
+      <div class="gemini-response">
+        <div
+          inline-copy-host
+          class="markdown markdown-main-panel stronger"
+          id="model-response-message-contentr_8bb3df8eb9b632b2"
+        >
+          <p>Gemini body</p>
+        </div>
+        <div class="buttons-container-v2">
+          <thumb-up-button>
+            <button data-test-id="thumb-up-button"></button>
+          </thumb-up-button>
+          <copy-button>
+            <button
+              data-test-id="copy-button"
+              jslog="BardVeMetadataKey:[[&quot;r_8bb3df8eb9b632b2&quot;]]"
+            ></button>
+          </copy-button>
+        </div>
+      </div>
+    `;
+
+    const message = document.querySelector('[id^="model-response-message-content"]');
+    const result = addGeminiSaveButton(message, createGeminiSaveButton);
+    const buttonsContainer = document.querySelector('.buttons-container-v2');
+    const saveButton = buttonsContainer.querySelector('.chatvault-save-btn');
+
+    expect(result.added).toBe(true);
+    expect(saveButton).toBe(result.button);
+    expect(saveButton.parentElement).toBe(buttonsContainer);
+    expect(saveButton.nextElementSibling.tagName.toLowerCase()).toBe('copy-button');
+    expect(resolveGeminiMessageFromButton(saveButton)).toBe(message);
   });
 });

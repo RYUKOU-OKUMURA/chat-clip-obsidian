@@ -28,6 +28,9 @@ function cleanClone(element) {
 }
 
 function resolveCaptureRoot(element) {
+  const markdownPanel = element.closest?.('[id^="model-response-message-content"], [inline-copy-host].markdown-main-panel');
+  if (markdownPanel) return markdownPanel;
+  if (element.matches?.('[id^="model-response-message-content"], [inline-copy-host].markdown-main-panel')) return element;
   if (element.closest?.('message-content')) return element.closest('message-content');
   if (element.matches?.('message-content')) return element;
   if (element.closest?.('.user-message')) return element.closest('.user-message');
