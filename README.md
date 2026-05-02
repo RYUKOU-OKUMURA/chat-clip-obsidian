@@ -70,20 +70,17 @@ npm run build:chromium
 ## 設定
 
 1. **拡張機能アイコン**をクリックして**オプション**を選択
-2. **保存方法の選択**:
-   - **File System API (推奨)**: File System Access APIでVaultに直接保存
-   - **自動選択**: File System API失敗時にObsidian URI、Downloadsへfallback
-   - **ダウンロードフォルダ経由**: ダウンロードフォルダ経由で保存
-3. **File System API設定**（推奨）:
-   - 「Vault フォルダを選択」ボタンでObsidian Vaultフォルダを選択
-   - 一度選択すれば、以降は自動的に直接保存されます
-4. **基本設定**:
-   - **Obsidian Vault名**: 保存先のvault名を入力
-   - **保存フォルダ**: 保存先パス（デフォルト: `ChatVault/{service}`）
-5. **カスタマイズ可能**:
-   - デフォルト保存モード
-   - ファイル名形式
-   - Markdownテンプレート
+2. **かんたん設定**:
+   - **Obsidian Vault名**: Obsidianで表示されているVault名
+   - **Obsidian Vaultフォルダ**: File System Access APIで直接保存するVaultのルートフォルダ
+   - **保存先プリセット**: 初期値はVault直下。おすすめは `ChatVault/{service}` のサービス別整理
+   - 画面上の「今回の保存先プレビュー」で、実際に作られる保存パスを確認できます
+3. **通常設定**:
+   - デフォルト保存モード、最新N件の件数、チャットページ上の保存ボタン表示を調整できます
+4. **詳細設定**:
+   - カスタム保存先テンプレート、Markdownテンプレート、保存方法、Downloads fallback、診断情報を調整できます
+5. **旧設定の扱い**:
+   - 以前の `ChatVault/{service}/{title}` などの保存先が見つかった場合は、勝手に変更せず警告と保存先プレビューを表示します
 
 ## 推奨保存方法
 
@@ -156,6 +153,8 @@ Chat Clip Obsidianは、[Turndown](https://github.com/mixmark-io/turndown)ライ
 # プロダクションビルド
 npm run build:chromium
 ```
+
+配布や手動読み込みに使うフォルダは必ず再ビルド後の `dist-chromium` です。`src` を変更しただけではブラウザに読み込まれる拡張機能は更新されません。
 
 ### プロジェクト構造
 

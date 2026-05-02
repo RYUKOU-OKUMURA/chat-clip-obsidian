@@ -2,7 +2,7 @@
 import { notifyBasic } from '../../utils/notifications/notifications.js';
 import { toBase64Utf8 } from '../../utils/data/encoding.js';
 import { buildObsidianNewUri } from '../../utils/browser/obsidian.js';
-import { sanitizeForFilename, sanitizeRelativePath } from '../../utils/data/validation.js';
+import { sanitizeRelativePath } from '../../utils/data/validation.js';
 import { createTab, openUrlWithAutoClose, getSync } from '../../utils/browser/chrome.js';
 import {
   loadDirectoryHandle,
@@ -18,6 +18,7 @@ import {
   normalizeMarkdown,
   normalizeSaveMethod
 } from '../../utils/chat/formatting.js';
+import { buildChatSavePath } from '../../utils/chat/savePath.js';
 import { createLogger } from '../../utils/logger.js';
 
 const log = createLogger('ChatVault Background');
@@ -86,26 +87,6 @@ function buildNoteContent({ settings, title, serviceLabel, sourceUrl, saved, mod
     type: mode,
     content: markdown
   });
-}
-
-function normalizeChatFolderTemplate(template) {
-  const raw = String(template ?? '').trim();
-  if (!raw || raw.includes('{title}')) return '';
-  return raw;
-}
-
-function buildFolderPath(template, { serviceLabel, dateStr, sanitizedTitle, mode }) {
-  const folderTemplate = normalizeChatFolderTemplate(template);
-  if (!folderTemplate) return '';
-
-  const rendered = folderTemplate
-    .replace(/\{service\}/g, serviceLabel)
-    .replace(/\{date\}/g, dateStr)
-    .replace(/\{title\}/g, sanitizedTitle)
-    .replace(/\{type\}/g, mode)
-    .replace(/\/+/g, '/')
-    .replace(/^\/|\/$/g, '');
-  return sanitizeRelativePath(rendered, 'ChatVault');
 }
 
 async function ensureExtensionDirectoryPermission(dirHandle) {
@@ -236,9 +217,22 @@ async function saveViaDownloadAPI(content, filename, folderPath) {
   });
 }
 
+function buildDownloadFolderPath(downloadsFolder, folderPath) {
+  const baseFolder = downloadsFolder ? sanitizeRelativePath(downloadsFolder, 'ChatVault') : '';
+  const preparedFolder = folderPath ? sanitizeRelativePath(folderPath, 'ChatVault') : '';
+
+  if (!preparedFolder) return baseFolder || 'ChatVault';
+  if (!baseFolder || preparedFolder === baseFolder || preparedFolder.startsWith(`${baseFolder}/`)) {
+    return preparedFolder;
+  }
+  return `${baseFolder}/${preparedFolder}`;
+}
+
 async function prepareMarkdownSave({ markdown, service, title, sourceUrl, mode, metadata = {} }) {
   const settings = await getSync([
     'obsidianVault',
+    'settingsVersion',
+    'saveLocationPreset',
     'chatFolderPath',
     'chatFolderPathExplicit',
     'chatNoteFormat',
@@ -249,17 +243,22 @@ async function prepareMarkdownSave({ markdown, service, title, sourceUrl, mode, 
   const serviceLabel = getServiceLabel(service);
   const normalizedMode = normalizeChatMode(mode || metadata.type);
   const saved = new Date().toISOString();
-  const dateStr = saved.split('T')[0];
-  const noteTitle = title || `${serviceLabel} Chat - ${dateStr}`;
-  const sanitizedTitle = sanitizeForFilename(noteTitle, 'untitled');
-  const filename = `${dateStr}_${sanitizedTitle}.md`;
-  const folderPath = buildFolderPath(settings.chatFolderPathExplicit === true ? settings.chatFolderPath : '', {
-    serviceLabel,
-    dateStr,
-    sanitizedTitle,
-    mode: normalizedMode
+  const pathInfo = buildChatSavePath({
+    settings,
+    service,
+    title,
+    mode: normalizedMode,
+    savedAt: saved
   });
-  const fullFilePath = folderPath ? `${folderPath}/${filename}` : filename;
+  const {
+    noteTitle,
+    filename,
+    folderPath,
+    fullFilePath,
+    saveLocationPreset,
+    folderTemplate,
+    legacySettingsDetected
+  } = pathInfo;
   const body = normalizeMarkdown(markdown);
   const fullContent = buildNoteContent({
     settings,
@@ -281,6 +280,9 @@ async function prepareMarkdownSave({ markdown, service, title, sourceUrl, mode, 
     fullFilePath,
     filename,
     folderPath,
+    saveLocationPreset,
+    folderTemplate,
+    legacySettingsDetected,
     service: serviceLabel,
     serviceLabel,
     title: noteTitle,
@@ -299,6 +301,9 @@ async function saveMarkdownToObsidian({ markdown, service, title, sourceUrl, mod
     fullFilePath,
     filename,
     folderPath,
+    saveLocationPreset,
+    folderTemplate,
+    legacySettingsDetected,
     serviceLabel,
     title: noteTitle,
     mode: normalizedMode,
@@ -325,6 +330,11 @@ async function saveMarkdownToObsidian({ markdown, service, title, sourceUrl, mod
         path: fsResult.finalFileName
           ? (folderPath ? `${folderPath}/${fsResult.finalFileName}` : fsResult.finalFileName)
           : fullFilePath,
+        folderPath,
+        fullFilePath,
+        saveLocationPreset,
+        folderTemplate,
+        legacySettingsDetected,
         service: serviceLabel,
         title: noteTitle
       };
@@ -346,6 +356,11 @@ async function saveMarkdownToObsidian({ markdown, service, title, sourceUrl, mod
         path: fsResult.finalFileName
           ? (folderPath ? `${folderPath}/${fsResult.finalFileName}` : fsResult.finalFileName)
           : fullFilePath,
+        folderPath,
+        fullFilePath,
+        saveLocationPreset,
+        folderTemplate,
+        legacySettingsDetected,
         service: serviceLabel,
         title: noteTitle
       };
@@ -366,6 +381,11 @@ async function saveMarkdownToObsidian({ markdown, service, title, sourceUrl, mod
         message: `Copied content to clipboard and opened Obsidian: ${filename}`,
         filename,
         path: fullFilePath,
+        folderPath,
+        fullFilePath,
+        saveLocationPreset,
+        folderTemplate,
+        legacySettingsDetected,
         service: serviceLabel,
         title: noteTitle
       };
@@ -384,6 +404,11 @@ async function saveMarkdownToObsidian({ markdown, service, title, sourceUrl, mod
           message: `Opened Obsidian URI for short note: ${filename}`,
           filename,
           path: fullFilePath,
+          folderPath,
+          fullFilePath,
+          saveLocationPreset,
+          folderTemplate,
+          legacySettingsDetected,
           service: serviceLabel,
           title: noteTitle
         };
@@ -395,7 +420,7 @@ async function saveMarkdownToObsidian({ markdown, service, title, sourceUrl, mod
   }
 
   try {
-    const downloadFolder = `${downloadsFolder}/${serviceLabel}`;
+    const downloadFolder = buildDownloadFolderPath(downloadsFolder, folderPath);
     const downloadResult = await saveViaDownloadAPI(fullContent, filename, downloadFolder);
     const message = `Saved to Downloads folder: ${downloadFolder}/${filename}`;
     notifyBasic({ message: `Saved to Downloads: ${filename}` });
@@ -405,6 +430,11 @@ async function saveMarkdownToObsidian({ markdown, service, title, sourceUrl, mod
       message,
       filename,
       path: `${downloadFolder}/${filename}`,
+      folderPath,
+      fullFilePath,
+      saveLocationPreset,
+      folderTemplate,
+      legacySettingsDetected,
       downloadId: downloadResult.downloadId,
       service: serviceLabel,
       title: noteTitle,
@@ -617,10 +647,13 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
       (async () => {
         const settings = await getSync([
           'obsidianVault',
+          'settingsVersion',
+          'saveLocationPreset',
           'folderPath',
           'noteContentFormat',
           'showSaveButton',
           'chatFolderPath',
+          'chatFolderPathExplicit',
           'chatNoteFormat',
           'saveMethod',
           'downloadsFolder',

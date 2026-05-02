@@ -1,6 +1,6 @@
 /* global chrome */
 import "./App.css";
-import React, { useState, useEffect, useRef, Suspense } from "react";
+import React, { useState, useEffect, useRef, Suspense, useMemo } from "react";
 import { sanitizeTitle } from "../../utils/data/validation.js";
 import { queryActiveTab, getSync } from "../../utils/browser/chrome.js";
 import {
@@ -9,7 +9,8 @@ import {
   removeDirectoryHandle,
   isDirectoryHandleUsable
 } from "../../utils/browser/fileSystemAccess.js";
-import { normalizeChatMode, normalizeSaveMethod } from "../../utils/chat/formatting.js";
+import { normalizeChatMode, normalizeSaveMethod, stripServiceTitle } from "../../utils/chat/formatting.js";
+import { buildChatSavePath, SETTINGS_VERSION } from "../../utils/chat/savePath.js";
 import { toast } from "../../utils/notifications/toast.js";
 import ChatModeSelector from "./components/ChatModeSelector";
 
@@ -21,6 +22,13 @@ const getChatServiceName = (url = "") => {
   if (url.includes("claude.ai")) return "Claude";
   if (url.includes("gemini.google.com")) return "Gemini";
   return "Unknown";
+};
+
+const getChatServiceKey = (url = "") => {
+  if (url.includes("chatgpt.com") || url.includes("chat.openai.com")) return "chatgpt";
+  if (url.includes("claude.ai")) return "claude";
+  if (url.includes("gemini.google.com")) return "gemini";
+  return "chatvault";
 };
 
 const ensurePopupDirectoryHandleIfNeeded = async (method) => {
@@ -84,11 +92,23 @@ function App() {
   const [notification, setNotification] = useState(null);
   const [darkMode, setDarkMode] = useState(false);
   const [saveMethod, setSaveMethod] = useState("filesystem");
+  const [pathSettings, setPathSettings] = useState({ settingsVersion: SETTINGS_VERSION });
 
   const containerRef = useRef();
   const menuRef = useRef();
   const saveButtonRef = useRef(null);
   const hamburgerMenuButtonRef = useRef(null);
+
+  const savePathPreview = useMemo(() => {
+    const serviceKey = getChatServiceKey(pageInfo.url);
+    const conversationTitle = stripServiceTitle(pageInfo.title || title, serviceKey, title);
+    return buildChatSavePath({
+      settings: pathSettings,
+      service: serviceKey,
+      title: conversationTitle,
+      mode
+    });
+  }, [mode, pageInfo.title, pageInfo.url, pathSettings, title]);
 
   useEffect(() => {
     const handleClickOutside = (e) => {
@@ -170,13 +190,30 @@ function App() {
     const loadSettings = async () => {
       setLoading(true);
       try {
-        const result = await getSync(["obsidianVault", "chatFolderPath", "defaultMode", "showPreview", "defaultMessageCount", "autoTagging", "saveMethod"]);
+        const result = await getSync([
+          "obsidianVault",
+          "settingsVersion",
+          "saveLocationPreset",
+          "chatFolderPath",
+          "chatFolderPathExplicit",
+          "defaultMode",
+          "showPreview",
+          "defaultMessageCount",
+          "autoTagging",
+          "saveMethod"
+        ]);
         if (result.obsidianVault) {
           setObsidianVault(result.obsidianVault);
         }
         if (result.chatFolderPath) {
           setChatFolderPath(result.chatFolderPath);
         }
+        setPathSettings({
+          settingsVersion: result.settingsVersion,
+          saveLocationPreset: result.saveLocationPreset,
+          chatFolderPath: result.chatFolderPath,
+          chatFolderPathExplicit: result.chatFolderPathExplicit
+        });
         if (result.defaultMode && isOnChatPage) {
           setMode(normalizeChatMode(result.defaultMode));
         }
@@ -354,6 +391,7 @@ function App() {
         service,
         title: response.title || title || tab.title || 'Untitled',
         filename: response.filename,
+        path: response.fullFilePath || response.path || response.filename,
         method: response.method,
         timestamp: Date.now()
       };
@@ -464,6 +502,31 @@ function App() {
               </div>
             )}
           </div>
+
+          {isOnChatPage && (
+            <div className={`mt-4 rounded-lg border px-3 py-2 text-left ${
+              darkMode
+                ? 'border-blue-500/40 bg-blue-950/30'
+                : 'border-blue-200 bg-blue-50'
+            }`}>
+              <div className={`text-xs font-semibold ${darkMode ? 'text-blue-200' : 'text-blue-700'}`}>
+                今回の保存先
+              </div>
+              <code className={`mt-1 block break-all text-xs ${darkMode ? 'text-blue-50' : 'text-blue-900'}`}>
+                {savePathPreview.fullFilePath}
+              </code>
+            </div>
+          )}
+
+          {isOnChatPage && savePathPreview.legacySettingsDetected && (
+            <div className={`mt-3 rounded-lg border px-3 py-2 text-left text-xs ${
+              darkMode
+                ? 'border-amber-500/50 bg-amber-950/30 text-amber-100'
+                : 'border-amber-300 bg-amber-50 text-amber-800'
+            }`}>
+              以前の保存設定が見つかりました。現在の保存先: {savePathPreview.fullFilePath}
+            </div>
+          )}
 
           {saveHistory.length > 0 && (
             <div className={`mt-4 pt-3 border-t ${darkMode ? 'border-gray-700' : 'border-gray-200'}`}>

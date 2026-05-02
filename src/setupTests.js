@@ -8,12 +8,19 @@ global.fetch = jest.fn();
 global.chrome = {
   runtime: {
     sendMessage: jest.fn(),
+    getManifest: jest.fn(() => ({ host_permissions: [] })),
+    openOptionsPage: jest.fn(),
+    lastError: null,
     onMessage: {
       addListener: jest.fn(),
       removeListener: jest.fn()
     }
   },
   storage: {
+    sync: {
+      get: jest.fn(),
+      set: jest.fn()
+    },
     local: {
       get: jest.fn(),
       set: jest.fn()
@@ -21,7 +28,9 @@ global.chrome = {
   },
   tabs: {
     query: jest.fn(),
-    sendMessage: jest.fn()
+    sendMessage: jest.fn(),
+    create: jest.fn(),
+    remove: jest.fn()
   }
 };
 
