@@ -279,6 +279,17 @@ export function captureMessages(mode = 'all', count = null) {
       throw new Error('Invalid capture mode: ' + mode);
     }
 
+    if (!messages.length) {
+      return {
+        success: false,
+        messages: [],
+        title: getTitle(),
+        service: 'claude',
+        error: 'No messages were extracted',
+        errorCode: 'EMPTY_CONTENT'
+      };
+    }
+
     return {
       success: true,
       messages,

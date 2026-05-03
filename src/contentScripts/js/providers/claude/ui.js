@@ -7,6 +7,7 @@ const log = createLogger('Claude UI');
 
 let observer = null;
 let globalTooltip = null;
+let rescanTimer = null;
 const SAVE_TOOLTIP_TEXT = 'Obsidianに保存する';
 
 function inlineButtonsEnabled() {
@@ -205,6 +206,10 @@ function startContentScriptIntegration() {
       observer.disconnect();
       observer = null;
     }
+    if (rescanTimer) {
+      clearTimeout(rescanTimer);
+      rescanTimer = null;
+    }
 
     document.querySelectorAll('.chatvault-save-btn, .chatvault-inline-actions').forEach((el) => el.remove());
     if (!inlineButtonsEnabled()) {
@@ -218,7 +223,11 @@ function startContentScriptIntegration() {
         mutation.type === 'childList' && Array.from(mutation.addedNodes).some((node) => node.nodeType === Node.ELEMENT_NODE)
       );
       if (hasElementChanges) {
-        scanMessages();
+        clearTimeout(rescanTimer);
+        rescanTimer = setTimeout(() => {
+          rescanTimer = null;
+          scanMessages();
+        }, 150);
       }
     });
     observer.observe(document.body, { childList: true, subtree: true });

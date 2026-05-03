@@ -20,6 +20,7 @@ module.exports = (env) => {
       filename: "[name].js",
       path: path.resolve(__dirname, `dist-${browser}`),
       publicPath: "",
+      clean: true,
     },
     mode: "production",
     module: {
@@ -79,9 +80,14 @@ module.exports = (env) => {
       }),
       new CopyPlugin({
         patterns: [
-          { from: "public", to: ".", globOptions: { ignore: ["**/*.html"] } },
+          { from: "public/logo48.png", to: "logo48.png" },
+          { from: "public/logo128.png", to: "logo128.png" },
           { from: `manifests/manifest_${browser}.json`, to: "manifest.json" },
-          { from: "src/workers", to: "workers" }
+          {
+            from: "src/workers",
+            to: "workers",
+            globOptions: { ignore: ["**/README.md"] },
+          }
         ],
       }),
       new webpack.DefinePlugin({

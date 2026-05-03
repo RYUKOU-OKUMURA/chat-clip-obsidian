@@ -1,11 +1,13 @@
 import { captureMessages as captureChatGPT } from '../contentScripts/js/providers/chatgpt/text.js';
-import { addSaveButton as addChatGPTSaveButton, createSaveButton as createChatGPTSaveButton, resolveMessageElementFromButton as resolveChatGPTMessageFromButton } from '../contentScripts/js/providers/chatgpt/ui.js';
+import { addSaveButton as addChatGPTSaveButton, createSaveButton as createChatGPTSaveButton, initializeChatGPT, resolveMessageElementFromButton as resolveChatGPTMessageFromButton } from '../contentScripts/js/providers/chatgpt/ui.js';
 import { captureMessages as captureGemini, extractSingleMessage as extractGeminiSingle } from '../contentScripts/js/providers/gemini/text.js';
 import { addSaveButton as addGeminiSaveButton, createSaveButton as createGeminiSaveButton, resolveMessageElementFromButton as resolveGeminiMessageFromButton } from '../contentScripts/js/providers/gemini/ui.js';
+import { captureMessages as captureClaude } from '../contentScripts/js/providers/claude/text.js';
 import { addSaveButton as addClaudeSaveButton, createSaveButton as createClaudeSaveButton } from '../contentScripts/js/providers/claude/ui.js';
 
 describe('provider capture contract', () => {
   afterEach(() => {
+    jest.useRealTimers();
     document.body.innerHTML = '';
   });
 
@@ -28,6 +30,19 @@ describe('provider capture contract', () => {
       { speaker: 'User', content: 'Follow up' }
     ]);
     expect(recent.messages).toEqual(all.messages.slice(-2));
+  });
+
+  test('ChatGPT captureMessages fails with EMPTY_CONTENT when no messages are extracted', () => {
+    document.body.innerHTML = '<main><p>No chat turns here</p></main>';
+
+    const result = captureChatGPT('all');
+
+    expect(result).toMatchObject({
+      success: false,
+      service: 'chatgpt',
+      messages: [],
+      errorCode: 'EMPTY_CONTENT'
+    });
   });
 
   test('ChatGPT captureMessages deduplicates conversation-turn and role containers', () => {
@@ -115,6 +130,32 @@ describe('provider capture contract', () => {
       { speaker: 'User', content: 'Follow up' }
     ]);
     expect(recent.messages).toEqual([{ speaker: 'User', content: 'Follow up' }]);
+  });
+
+  test('Gemini captureMessages fails with EMPTY_CONTENT when no messages are extracted', () => {
+    document.body.innerHTML = '<main><p>Unrelated page content</p></main>';
+
+    const result = captureGemini('all');
+
+    expect(result).toMatchObject({
+      success: false,
+      service: 'gemini',
+      messages: [],
+      errorCode: 'EMPTY_CONTENT'
+    });
+  });
+
+  test('Gemini button resolution does not fall back to document.body content', () => {
+    document.body.innerHTML = `
+      <main>
+        <p>Unrelated body content</p>
+        <button class="chatvault-save-btn">Save</button>
+      </main>
+    `;
+
+    const button = document.querySelector('.chatvault-save-btn');
+
+    expect(resolveGeminiMessageFromButton(button)).toBeNull();
   });
 
   test('Gemini captureMessages deduplicates nested response containers', () => {
@@ -259,5 +300,44 @@ describe('provider capture contract', () => {
     expect(result.button.nextElementSibling).toBe(copyHost);
     expect(result.button.getAttribute('aria-label')).toBe('Obsidianに保存');
     expect(result.button.getAttribute('data-tooltip')).toBe('Obsidianに保存する');
+  });
+
+  test('Claude captureMessages fails with EMPTY_CONTENT when no messages are extracted', () => {
+    document.body.innerHTML = '<main><p>No Claude messages here</p></main>';
+
+    const result = captureClaude('all');
+
+    expect(result).toMatchObject({
+      success: false,
+      service: 'claude',
+      messages: [],
+      errorCode: 'EMPTY_CONTENT'
+    });
+  });
+
+  test('ChatGPT MutationObserver debounces rescans', async () => {
+    jest.useFakeTimers();
+    document.body.innerHTML = `
+      <article data-message-author-role="assistant" data-message-id="a1">
+        <div class="markdown"><p>Initial</p></div>
+      </article>
+    `;
+
+    initializeChatGPT();
+    expect(document.querySelectorAll('.chatvault-save-btn')).toHaveLength(1);
+
+    const next = document.createElement('article');
+    next.setAttribute('data-message-author-role', 'assistant');
+    next.setAttribute('data-message-id', 'a2');
+    next.innerHTML = '<div class="markdown"><p>Later</p></div>';
+    document.body.appendChild(next);
+    await Promise.resolve();
+
+    expect(document.querySelectorAll('.chatvault-save-btn')).toHaveLength(1);
+    jest.advanceTimersByTime(149);
+    expect(document.querySelectorAll('.chatvault-save-btn')).toHaveLength(1);
+    jest.advanceTimersByTime(1);
+    expect(document.querySelectorAll('.chatvault-save-btn')).toHaveLength(2);
+    jest.useRealTimers();
   });
 });

@@ -38,6 +38,5 @@ firefox-source-code/
 
 .idea/
 .qoder/
-package-lock.json
 *.backup
 DEBUG_LOG*.md

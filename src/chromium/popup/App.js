@@ -13,6 +13,7 @@ import { normalizeChatMode, normalizeSaveMethod, stripServiceTitle } from "../..
 import { buildChatSavePath, SETTINGS_VERSION } from "../../utils/chat/savePath.js";
 import { toast } from "../../utils/notifications/toast.js";
 import ChatModeSelector from "./components/ChatModeSelector";
+import { clampRecentCount } from "./components/recentCount";
 
 // Lazy load MarkdownPreview to reduce initial bundle size
 const MarkdownPreview = React.lazy(() => import("./components/MarkdownPreview"));
@@ -88,11 +89,11 @@ function App() {
   const [showPreview, setShowPreview] = useState(false);
   const [chatPreviewContent, setChatPreviewContent] = useState('');
   const [saveHistory, setSaveHistory] = useState([]);
-  const [autoTagging, setAutoTagging] = useState(true);
   const [notification, setNotification] = useState(null);
   const [darkMode, setDarkMode] = useState(false);
   const [saveMethod, setSaveMethod] = useState("filesystem");
   const [pathSettings, setPathSettings] = useState({ settingsVersion: SETTINGS_VERSION });
+  const [isMessageCountValid, setIsMessageCountValid] = useState(true);
 
   const containerRef = useRef();
   const menuRef = useRef();
@@ -133,10 +134,12 @@ function App() {
       setSaveButtonDisabled(true);
     } else if (!isOnChatPage) {
       setSaveButtonDisabled(true);
+    } else if (mode === 'recent' && !isMessageCountValid) {
+      setSaveButtonDisabled(true);
     } else {
       setSaveButtonDisabled(false);
     }
-  }, [title, errorMsg, mode, isOnChatPage]);
+  }, [title, errorMsg, mode, isOnChatPage, isMessageCountValid]);
 
 
   useEffect(() => {
@@ -199,7 +202,6 @@ function App() {
           "defaultMode",
           "showPreview",
           "defaultMessageCount",
-          "autoTagging",
           "saveMethod"
         ]);
         if (result.obsidianVault) {
@@ -221,10 +223,7 @@ function App() {
           setShowPreview(result.showPreview);
         }
         if (result.defaultMessageCount) {
-          setMessageCount(result.defaultMessageCount);
-        }
-        if (result.autoTagging !== undefined) {
-          setAutoTagging(result.autoTagging);
+          setMessageCount(clampRecentCount(result.defaultMessageCount));
         }
         if (result.saveMethod) {
           setSaveMethod(normalizeSaveMethod(result.saveMethod));
@@ -263,7 +262,7 @@ function App() {
       let preview = `# ${chatTitle}\n\n`;
 
       if (mode === 'single') {
-        preview += '### Message Content\n\nCurrent message will be saved here.';
+        preview += '### Latest Message\n\nLatest message will be saved here.';
       } else if (mode === 'selection') {
         preview += '### Selected Text\n\nSelected text will be saved here.';
       } else if (mode === 'recent') {
@@ -361,9 +360,13 @@ function App() {
     const selectedMode = normalizeChatMode(mode);
     const action = actionByMode[selectedMode];
     const normalizedSaveMethod = normalizeSaveMethod(saveMethod);
-    const shouldEnsureFolder = normalizedSaveMethod === 'filesystem' || normalizedSaveMethod === 'auto';
+    const shouldEnsureFolder = normalizedSaveMethod === 'filesystem';
 
     try {
+      if (selectedMode === 'recent' && !isMessageCountValid) {
+        throw new Error('保存するメッセージ数は1から100の範囲で入力してください');
+      }
+
       setSaveButtonDisabled(true);
       setNotification({ type: 'info', message: '保存中です...' });
 
@@ -481,6 +484,7 @@ function App() {
           <ChatModeSelector
             onModeChange={setMode}
             onCountChange={setMessageCount}
+            onCountValidityChange={setIsMessageCountValid}
             defaultMode={mode}
             defaultCount={messageCount}
             darkMode={darkMode}
@@ -491,9 +495,13 @@ function App() {
       <div className="p-4">
           <div className="text-center">
             <div className="text-sm text-zinc-600 mb-2">
-              {mode === 'single' && "「保存」をクリックして現在のメッセージを取得します"}
+              {mode === 'single' && "「保存」をクリックして最新メッセージを取得します"}
               {mode === 'selection' && "ページ上のテキストを選択してから「保存」をクリックしてください"}
-              {mode === 'recent' && `最新の${messageCount}件のメッセージを保存します`}
+              {mode === 'recent' && (
+                isMessageCountValid
+                  ? `最新の${messageCount}件のメッセージを保存します`
+                  : '保存するメッセージ数を1から100の範囲で入力してください'
+              )}
               {mode === 'full' && "会話全体を保存します"}
             </div>
             {!isOnChatPage && (

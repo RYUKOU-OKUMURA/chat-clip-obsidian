@@ -4,6 +4,7 @@ import { toast } from "../../utils/notifications/toast.js";
 import { getSync } from "../../utils/browser/chrome.js";
 import { saveDirectoryHandle } from "../../utils/browser/fileSystemAccess.js";
 import { normalizeChatMode, normalizeSaveMethod } from "../../utils/chat/formatting.js";
+import { clampRecentCount } from "../popup/components/recentCount.js";
 import {
   buildChatSavePath,
   DEFAULT_SAVE_LOCATION_PRESET,
@@ -60,10 +61,12 @@ const normalizeChatNoteFormat = (format) => {
   return hasLegacyMetadata ? DEFAULT_CHAT_NOTE_FORMAT : normalized;
 };
 
+const chatNoteFormatHasContent = (format) => /\{content\}/i.test(String(format || ""));
+
 const Section = ({ title, description, children }) => (
   <section className="bg-gray-800 p-6 rounded-lg shadow-lg mb-6">
     <div className="mb-5">
-      <h2 className="text-2xl font-semibold text-purple-300">{title}</h2>
+          <h2 className="text-2xl font-semibold text-purple-300">{title}</h2>
       {description && <p className="text-sm text-gray-400 mt-1">{description}</p>}
     </div>
     {children}
@@ -92,9 +95,9 @@ const OptionsApp = () => {
   const [saveLocationPreset, setSaveLocationPreset] = useState(DEFAULT_SAVE_LOCATION_PRESET);
   const [chatFolderPath, setChatFolderPath] = useState("");
   const [chatNoteFormat, setChatNoteFormat] = useState(DEFAULT_CHAT_NOTE_FORMAT);
+  const [chatNoteFormatError, setChatNoteFormatError] = useState("");
   const [showPreview, setShowPreview] = useState(true);
   const [defaultMessageCount, setDefaultMessageCount] = useState(30);
-  const [autoTagging, setAutoTagging] = useState(true);
   const [saveMethod, setSaveMethod] = useState("filesystem");
   const [downloadsFolder, setDownloadsFolder] = useState("ChatVault");
   const [folderPath, setFolderPath] = useState("");
@@ -152,7 +155,6 @@ const OptionsApp = () => {
       "chatNoteFormat",
       "showPreview",
       "defaultMessageCount",
-      "autoTagging",
       "saveMethod",
       "downloadsFolder",
       "selectedFolderPath"
@@ -174,8 +176,7 @@ const OptionsApp = () => {
       if (result.showSaveButton !== undefined) setShowSaveButton(result.showSaveButton);
       if (result.chatNoteFormat !== undefined) setChatNoteFormat(normalizeChatNoteFormat(result.chatNoteFormat));
       if (result.showPreview !== undefined) setShowPreview(result.showPreview);
-      if (result.defaultMessageCount) setDefaultMessageCount(result.defaultMessageCount);
-      if (result.autoTagging !== undefined) setAutoTagging(result.autoTagging);
+      if (result.defaultMessageCount) setDefaultMessageCount(clampRecentCount(result.defaultMessageCount));
       if (result.saveMethod) setSaveMethod(normalizeSaveMethod(result.saveMethod));
       if (result.downloadsFolder) setDownloadsFolder(result.downloadsFolder);
       if (result.selectedFolderPath) setFolderPath(result.selectedFolderPath);
@@ -215,26 +216,28 @@ const OptionsApp = () => {
   };
 
   const handleSaveTest = () => {
-    if (!vault.trim()) {
-      toast.show('Obsidian Vault名を入力してください。', 'error');
+    if (normalizeSaveMethod(saveMethod) === 'auto' && !vault.trim()) {
+      toast.show('自動選択ではURI fallbackに備えてObsidian Vault名を入力してください。', 'error');
       return;
     }
-    if ((saveMethod === 'filesystem' || saveMethod === 'auto') && !folderPath) {
-      toast.show('File System APIで保存する場合はVaultフォルダを選択してください。', 'error');
+    if (!chatNoteFormatHasContent(normalizeChatNoteFormat(chatNoteFormat))) {
+      const message = 'チャットノートフォーマットには {content} を含めてください。';
+      setChatNoteFormatError(message);
+      toast.show(message, 'error');
       return;
     }
-    toast.show(`保存先テスト: ${previewPath.fullFilePath}`, 'success');
+    toast.show(`保存先プレビュー: ${previewPath.fullFilePath}`, 'success');
   };
 
   const handleResetDefaults = () => {
     setSaveLocationPreset(DEFAULT_SAVE_LOCATION_PRESET);
     setChatFolderPath("");
     setChatNoteFormat(DEFAULT_CHAT_NOTE_FORMAT);
+    setChatNoteFormatError("");
     setDefaultMode("single");
     setDefaultMessageCount(30);
     setShowSaveButton(true);
     setShowPreview(true);
-    setAutoTagging(true);
     setSaveMethod("filesystem");
     setDownloadsFolder("ChatVault");
     setLegacySettingsDetected(false);
@@ -251,13 +254,14 @@ const OptionsApp = () => {
   };
 
   const handleSave = () => {
-    if (vault.trim() === "" || folder.trim() === "") {
-      toast.show('Obsidian Vault名とWebクリップ用フォルダ名を入力してください。', 'error');
+    const normalizedSaveMethod = normalizeSaveMethod(saveMethod);
+    if (normalizedSaveMethod === 'auto' && vault.trim() === "") {
+      toast.show('自動選択ではURI fallbackに備えてObsidian Vault名を入力してください。', 'error');
       return;
     }
 
     const invalidCharacterPattern = /[\\:*?"<>|]/;
-    if (invalidCharacterPattern.test(vault)) {
+    if (vault.trim() && invalidCharacterPattern.test(vault)) {
       toast.show('無効な文字が検出されました。Vault名には次の文字を使用しないでください: /, \\, :, *, ?, ", <, >, |', 'error');
       return;
     }
@@ -267,6 +271,14 @@ const OptionsApp = () => {
       ? normalizeChatFolderTemplate(chatFolderPath)
       : '';
     const normalizedChatNoteFormat = normalizeChatNoteFormat(chatNoteFormat);
+    if (!chatNoteFormatHasContent(normalizedChatNoteFormat)) {
+      const message = 'チャットノートフォーマットには {content} を含めてください。';
+      setChatNoteFormatError(message);
+      toast.show(message, 'error');
+      return;
+    }
+
+    const normalizedMessageCount = clampRecentCount(defaultMessageCount);
 
     chrome.storage.sync.set(
       {
@@ -281,9 +293,8 @@ const OptionsApp = () => {
         chatFolderPathExplicit: normalizedPreset === SAVE_LOCATION_PRESETS.CUSTOM && Boolean(normalizedChatFolderPath),
         chatNoteFormat: normalizedChatNoteFormat,
         showPreview,
-        defaultMessageCount,
-        autoTagging,
-        saveMethod: normalizeSaveMethod(saveMethod),
+        defaultMessageCount: normalizedMessageCount,
+        saveMethod: normalizedSaveMethod,
         downloadsFolder: downloadsFolder.trim() || "ChatVault",
         selectedFolderPath: folderPath
       },
@@ -297,6 +308,8 @@ const OptionsApp = () => {
         setLegacySettingsDetected(false);
         setChatFolderPath(normalizedChatFolderPath);
         setChatNoteFormat(normalizedChatNoteFormat);
+        setChatNoteFormatError("");
+        setDefaultMessageCount(normalizedMessageCount);
         toast.show(`設定を保存しました。保存先: ${previewPath.fullFilePath}`, 'success');
         chrome.runtime.sendMessage({ action: 'saveSettings', settings: {} });
       }
@@ -327,7 +340,7 @@ const OptionsApp = () => {
 
         <Section
           title="かんたん設定"
-          description="まずはVault名、Vaultフォルダ、保存先だけ決めれば使えます。"
+          description="保存方法に合わせて、保存先と必要な連携情報だけを設定します。"
         >
           <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
             <div>
@@ -335,7 +348,7 @@ const OptionsApp = () => {
                 htmlFor="vault"
                 help="Obsidianで表示されているVault名です。URI fallbackで使います。"
               >
-                Obsidian Vault名
+                Obsidian Vault名（自動選択時のみ必須）
               </FieldLabel>
               <input
                 type="text"
@@ -403,7 +416,7 @@ const OptionsApp = () => {
             onClick={handleSaveTest}
             className="mt-4 bg-gray-700 hover:bg-gray-600 text-white font-semibold py-2 px-4 rounded-lg transition-colors"
           >
-            保存テスト
+            保存先プレビュー確認
           </button>
         </Section>
 
@@ -420,7 +433,7 @@ const OptionsApp = () => {
                 value={defaultMode}
                 onChange={(e) => setDefaultMode(e.target.value)}
               >
-                <option value="single">単一メッセージ</option>
+                <option value="single">最新メッセージ</option>
                 <option value="recent">最新N件</option>
                 <option value="full">会話全体</option>
                 <option value="selection">選択範囲</option>
@@ -438,7 +451,7 @@ const OptionsApp = () => {
                 max="100"
                 className="w-full p-3 bg-gray-700 rounded-lg border border-gray-600 focus:outline-none focus:ring-2 focus:ring-purple-400"
                 value={defaultMessageCount}
-                onChange={(e) => setDefaultMessageCount(parseInt(e.target.value, 10) || 30)}
+                onChange={(e) => setDefaultMessageCount(clampRecentCount(e.target.value))}
               />
             </div>
           </div>
@@ -554,16 +567,6 @@ const OptionsApp = () => {
                 />
               </div>
 
-              <label className="flex items-center gap-3 bg-gray-700 p-3 rounded-lg">
-                <input
-                  type="checkbox"
-                  className="form-checkbox h-5 w-5 text-purple-600 bg-gray-800 border-gray-600 rounded focus:ring-purple-500"
-                  checked={autoTagging}
-                  onChange={(e) => setAutoTagging(e.target.checked)}
-                />
-                <span>サービス名を自動的にタグとして追加</span>
-              </label>
-
               <div>
                 <FieldLabel htmlFor="chatNoteFormat" help="標準はタイトルの直後に本文だけを保存します。">
                   チャットノートフォーマット
@@ -571,14 +574,20 @@ const OptionsApp = () => {
                 <div className="flex flex-wrap gap-2 my-2">
                   <button
                     type="button"
-                    onClick={() => setChatNoteFormat(DEFAULT_CHAT_NOTE_FORMAT)}
+                    onClick={() => {
+                      setChatNoteFormat(DEFAULT_CHAT_NOTE_FORMAT);
+                      setChatNoteFormatError("");
+                    }}
                     className="px-3 py-1 bg-indigo-600 hover:bg-indigo-700 text-white text-sm rounded-lg"
                   >
                     タイトル+本文
                   </button>
                   <button
                     type="button"
-                    onClick={() => setChatNoteFormat('{content}')}
+                    onClick={() => {
+                      setChatNoteFormat('{content}');
+                      setChatNoteFormatError("");
+                    }}
                     className="px-3 py-1 bg-indigo-600 hover:bg-indigo-700 text-white text-sm rounded-lg"
                   >
                     本文のみ
@@ -586,11 +595,25 @@ const OptionsApp = () => {
                 </div>
                 <textarea
                   id="chatNoteFormat"
-                  className="w-full p-3 bg-gray-700 rounded-lg border border-gray-600 focus:outline-none focus:ring-2 focus:ring-purple-400 font-mono"
+                  className={`w-full p-3 bg-gray-700 rounded-lg border focus:outline-none focus:ring-2 focus:ring-purple-400 font-mono ${
+                    chatNoteFormatError ? 'border-red-500' : 'border-gray-600'
+                  }`}
                   rows="8"
                   value={chatNoteFormat}
-                  onChange={(e) => setChatNoteFormat(e.target.value)}
+                  onChange={(e) => {
+                    setChatNoteFormat(e.target.value);
+                    if (chatNoteFormatError && chatNoteFormatHasContent(e.target.value)) {
+                      setChatNoteFormatError("");
+                    }
+                  }}
+                  aria-invalid={Boolean(chatNoteFormatError)}
+                  aria-describedby={chatNoteFormatError ? "chatNoteFormat-error" : undefined}
                 />
+                {chatNoteFormatError && (
+                  <p id="chatNoteFormat-error" className="mt-2 text-sm text-red-300" role="alert">
+                    {chatNoteFormatError}
+                  </p>
+                )}
               </div>
 
               <div>

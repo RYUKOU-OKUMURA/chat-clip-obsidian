@@ -41,7 +41,7 @@ function resolveCaptureRoot(element) {
   if (element.closest?.('.model-response-text')) {
     return element.closest('message-content') || element.closest('.model-response-text');
   }
-  return element;
+  return null;
 }
 
 function getCaptureElements() {
@@ -140,7 +140,7 @@ export function captureMessages(mode, count = null) {
       speaker: role === 'user' ? 'User' : 'Assistant',
       content: html ? toMarkdownIfHtml(html) : (cloned?.textContent?.trim() || '')
     };
-  });
+  }).filter((message) => (message.content || '').trim());
 
   let messages = allMessages;
   if (mode === 'recent' && count) {
@@ -152,6 +152,17 @@ export function captureMessages(mode, count = null) {
   }
 
   const title = stripServiceTitle(document.title, 'gemini');
+
+  if (!messages.length) {
+    return {
+      success: false,
+      messages: [],
+      title,
+      service: 'gemini',
+      error: 'No messages were extracted',
+      errorCode: 'EMPTY_CONTENT'
+    };
+  }
 
   return { success: true, messages, title, service: 'gemini' };
 }

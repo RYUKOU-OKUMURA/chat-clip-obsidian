@@ -80,7 +80,7 @@ export function captureMessages(mode, count = null) {
       speaker: isUser ? 'User' : 'Assistant',
       content: html ? toMarkdownIfHtml(html) : (cloned?.textContent?.trim() || '')
     };
-  });
+  }).filter((message) => (message.content || '').trim());
 
   let messages = allMessages;
   if (mode === 'recent' && count) {
@@ -92,6 +92,17 @@ export function captureMessages(mode, count = null) {
   }
 
   const title = stripServiceTitle(document.title, 'chatgpt');
+
+  if (!messages.length) {
+    return {
+      success: false,
+      messages: [],
+      title,
+      service: 'chatgpt',
+      error: 'No messages were extracted',
+      errorCode: 'EMPTY_CONTENT'
+    };
+  }
 
   return { success: true, messages, title, service: 'chatgpt' };
 }

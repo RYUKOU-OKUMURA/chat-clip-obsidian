@@ -23,8 +23,6 @@
       "resources": [
         "contentScript.css",
         "workers/*.js",
-        "locales/**/*.json",
-        "i18n/**/*.json",
         "logo48.png",
         "logo128.png"
       ],

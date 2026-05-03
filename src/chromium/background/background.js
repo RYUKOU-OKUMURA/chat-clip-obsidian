@@ -24,6 +24,19 @@ import { createLogger } from '../../utils/logger.js';
 const log = createLogger('Chat Clip Obsidian Background');
 const SHORT_URI_CONTENT_LIMIT = 6000;
 const DEFAULT_CHAT_NOTE_FORMAT = '# {title}\n\n{content}';
+const SPEAKER_HEADING_ONLY_RE = /^#{1,6}\s+(User|Assistant|Selection)\s*$/gim;
+
+function hasSaveableContent(markdown) {
+  return Boolean(normalizeMarkdown(markdown || '').replace(SPEAKER_HEADING_ONLY_RE, '').trim());
+}
+
+function emptyContentResponse() {
+  return {
+    success: false,
+    error: 'No content to save',
+    errorCode: 'EMPTY_CONTENT'
+  };
+}
 
 function renderTemplate(template, values) {
   return String(template || '')
@@ -229,6 +242,10 @@ function buildDownloadFolderPath(downloadsFolder, folderPath) {
 }
 
 async function prepareMarkdownSave({ markdown, service, title, sourceUrl, mode, metadata = {} }) {
+  if (!hasSaveableContent(markdown)) {
+    return emptyContentResponse();
+  }
+
   const settings = await getSync([
     'obsidianVault',
     'settingsVersion',
@@ -270,7 +287,7 @@ async function prepareMarkdownSave({ markdown, service, title, sourceUrl, mode, 
     markdown: body
   });
 
-  const vaultName = settings.obsidianVault || 'MyVault';
+  const vaultName = String(settings.obsidianVault || '').trim();
   const saveMethod = normalizeSaveMethod(settings.saveMethod);
   const downloadsFolder = settings.downloadsFolder || 'ChatVault';
 
@@ -296,6 +313,9 @@ async function prepareMarkdownSave({ markdown, service, title, sourceUrl, mode, 
 
 async function saveMarkdownToObsidian({ markdown, service, title, sourceUrl, mode, metadata = {}, sender }) {
   const prepared = await prepareMarkdownSave({ markdown, service, title, sourceUrl, mode, metadata });
+  if (!prepared.success) {
+    return prepared;
+  }
   const {
     fullContent,
     fullFilePath,
@@ -370,7 +390,7 @@ async function saveMarkdownToObsidian({ markdown, service, title, sourceUrl, mod
     }
   }
 
-  if (saveMethod !== 'downloads') {
+  if (saveMethod !== 'downloads' && vaultName) {
     try {
       await copyToClipboardViaTab(tabId, fullContent);
       const uri = buildObsidianNewUri({ vaultName, filePath: fullFilePath, clipboard: true });
@@ -417,6 +437,8 @@ async function saveMarkdownToObsidian({ markdown, service, title, sourceUrl, mod
         log.warn('Short content URI fallback failed:', error);
       }
     }
+  } else if (saveMethod !== 'downloads') {
+    failures.push('obsidian-uri: vault name is not configured');
   }
 
   try {
@@ -469,13 +491,14 @@ async function handleSaveMessage(request, sender, sendResponse) {
 async function handleSaveMultipleMessages(request, sender, sendResponse) {
   try {
     const messages = Array.isArray(request.messages) ? request.messages : [];
-    if (!messages.length) {
-      sendResponse({ success: false, error: 'No messages to save' });
+    const nonEmptyMessages = messages.filter((message) => (message?.content || '').trim());
+    if (!nonEmptyMessages.length) {
+      sendResponse(emptyContentResponse());
       return;
     }
 
     const mode = normalizeChatMode(request.messageType || request.mode || 'full');
-    const body = formatMessagesAsMarkdown(messages);
+    const body = formatMessagesAsMarkdown(nonEmptyMessages);
 
     const response = await saveMarkdownToObsidian({
       markdown: body,
@@ -529,14 +552,15 @@ async function handlePrepareMessage(request, sender, sendResponse) {
 async function handlePrepareMultipleMessages(request, sender, sendResponse) {
   try {
     const messages = Array.isArray(request.messages) ? request.messages : [];
-    if (!messages.length) {
-      sendResponse({ success: false, error: 'No messages to save' });
+    const nonEmptyMessages = messages.filter((message) => (message?.content || '').trim());
+    if (!nonEmptyMessages.length) {
+      sendResponse(emptyContentResponse());
       return;
     }
 
     const mode = normalizeChatMode(request.messageType || request.mode || 'full');
     const response = await prepareMarkdownSave({
-      markdown: formatMessagesAsMarkdown(messages),
+      markdown: formatMessagesAsMarkdown(nonEmptyMessages),
       service: request.service,
       title: request.conversationTitle,
       sourceUrl: request.sourceUrl || sender.tab?.url || '',

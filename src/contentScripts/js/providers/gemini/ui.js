@@ -11,6 +11,7 @@ import { createFallbackActionContainer, getDirectChild, isVisibleElement } from 
 // グローバル変数
 let globalTooltip = null;
 let globalObserver = null;
+let rescanTimer = null;
 const SAVE_TOOLTIP_TEXT = 'Obsidianに保存する';
 
 function inlineButtonsEnabled() {
@@ -741,7 +742,7 @@ function resolveMessageRoot(element) {
   const scoped = findMessageInScope(element.closest?.('model-response, response-container, .response-container, .conversation-container, .conversation-turn') || element);
   if (scoped) return scoped;
 
-  return findMessageInScope(document.body);
+  return null;
 }
 
 function getButtonScope(messageRoot) {
@@ -773,6 +774,10 @@ function initializeGemini(createSaveButton) {
     globalObserver.disconnect();
     globalObserver = null;
   }
+  if (rescanTimer) {
+    clearTimeout(rescanTimer);
+    rescanTimer = null;
+  }
 
   // 既存のボタンをクリーンアップ
   const existingButtons = document.querySelectorAll('.chatvault-save-btn');
@@ -783,29 +788,37 @@ function initializeGemini(createSaveButton) {
     return;
   }
 
+  const scanMessages = () => {
+    const messages = document.querySelectorAll(GEMINI_ACTION_CONTAINER_SELECTOR);
+    messages.forEach(buttonContainer => {
+      addSaveButton(buttonContainer.parentElement, createSaveButton);
+    });
+  };
+
   // 既存メッセージの初期スキャン
-  const messages = document.querySelectorAll(GEMINI_ACTION_CONTAINER_SELECTOR);
-  messages.forEach(buttonContainer => {
-    addSaveButton(buttonContainer.parentElement, createSaveButton);
-  });
+  scanMessages();
 
   // mutation observerを設定
   globalObserver = new MutationObserver((mutations) => {
+    let shouldScan = false;
     mutations.forEach((mutation) => {
       if (mutation.type === 'childList') {
         mutation.addedNodes.forEach((node) => {
           if (node.nodeType === Node.ELEMENT_NODE) {
-            const buttonContainers = node.matches && node.matches(GEMINI_ACTION_CONTAINER_SELECTOR)
-              ? [node]
-              : node.querySelectorAll ? node.querySelectorAll(GEMINI_ACTION_CONTAINER_SELECTOR) : [];
-
-            buttonContainers.forEach(buttonContainer => {
-              addSaveButton(buttonContainer.parentElement, createSaveButton);
-            });
+            shouldScan = true;
           }
         });
       }
     });
+    if (shouldScan && inlineButtonsEnabled()) {
+      clearTimeout(rescanTimer);
+      rescanTimer = setTimeout(() => {
+        rescanTimer = null;
+        if (inlineButtonsEnabled()) {
+          scanMessages();
+        }
+      }, 150);
+    }
   });
 
   globalObserver.observe(document.body, {
@@ -892,6 +905,10 @@ function initializeGeminiWithNewButtons() {
     globalObserver.disconnect();
     globalObserver = null;
   }
+  if (rescanTimer) {
+    clearTimeout(rescanTimer);
+    rescanTimer = null;
+  }
 
   document.querySelectorAll('.chatvault-save-btn').forEach(btn => btn.remove());
   document.querySelectorAll('.chatvault-inline-actions').forEach(el => el.remove());
@@ -922,7 +939,13 @@ function initializeGeminiWithNewButtons() {
       }
     });
     if (shouldScan && inlineButtonsEnabled()) {
-      scanMessages();
+      clearTimeout(rescanTimer);
+      rescanTimer = setTimeout(() => {
+        rescanTimer = null;
+        if (inlineButtonsEnabled()) {
+          scanMessages();
+        }
+      }, 150);
     }
   });
   

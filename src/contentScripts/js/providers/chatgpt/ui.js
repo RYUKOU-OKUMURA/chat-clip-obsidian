@@ -190,6 +190,7 @@ function addSaveButton(messageElement, createSaveButton) {
 
 // グローバルなObserver管理
 let globalObserver = null;
+let rescanTimer = null;
 
 /**
  * 初期化処理 - 動的コンテンツに対応（SPA遷移にも対応）
@@ -200,6 +201,10 @@ function initializeChatGPT() {
   if (globalObserver) {
     globalObserver.disconnect();
     globalObserver = null;
+  }
+  if (rescanTimer) {
+    clearTimeout(rescanTimer);
+    rescanTimer = null;
   }
 
   // 既存のボタンをクリーンアップ（SPA遷移時の重複防止）
@@ -233,7 +238,13 @@ function initializeChatGPT() {
       }
     });
     if (shouldScan && inlineButtonsEnabled()) {
-      scanMessages();
+      clearTimeout(rescanTimer);
+      rescanTimer = setTimeout(() => {
+        rescanTimer = null;
+        if (inlineButtonsEnabled()) {
+          scanMessages();
+        }
+      }, 150);
     }
   });
 

@@ -7,13 +7,15 @@
     "autoprefixer": "^10.4.21",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
-    "react-scripts": "^0.0.0",
     "react-textarea-autosize": "^8.5.3",
     "turndown": "^7.1.2",
     "turndown-plugin-gfm": "^1.0.2"
   },
   "scripts": {
     "build:chromium": "webpack --env browser=chromium --config webpack.config.js",
+    "clean:chromium": "rm -rf dist-chromium dist-chromium.zip chat-clip-obsidian-chromium.zip",
+    "package:chromium": "npm run clean:chromium && npm run build:chromium && cd dist-chromium && zip -qr ../dist-chromium.zip . -x '*.DS_Store'",
+    "verify:chromium-package": "node scripts/verify-chromium-package.js dist-chromium.zip",
     "test": "jest"
   },
   "eslintConfig": {

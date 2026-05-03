@@ -1,15 +1,28 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
+import {
+  RECENT_COUNT_MIN,
+  RECENT_COUNT_MAX,
+  clampRecentCount,
+  isValidRecentCount
+} from './recentCount';
 
-const ChatModeSelector = ({ onModeChange, onCountChange, defaultMode = 'single', defaultCount = 30, darkMode = false }) => {
+const ChatModeSelector = ({
+  onModeChange,
+  onCountChange,
+  onCountValidityChange,
+  defaultMode = 'single',
+  defaultCount = 30,
+  darkMode = false
+}) => {
   const [selectedMode, setSelectedMode] = useState(defaultMode);
-  const [messageCount, setMessageCount] = useState(defaultCount);
-  const [isCountValid, setIsCountValid] = useState(true);
+  const [messageCountInput, setMessageCountInput] = useState(String(clampRecentCount(defaultCount)));
+  const isCountValid = useMemo(() => isValidRecentCount(messageCountInput), [messageCountInput]);
 
   const modes = [
     {
       id: 'single',
-      name: '単一メッセージ',
-      description: '現在のメッセージを保存',
+      name: '最新メッセージ',
+      description: '最新の1件を保存',
       icon: (
         <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 8h10M7 12h4m1 8l-4-4H5a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v8a2 2 0 01-2 2h-3l-4 4z" />
@@ -28,7 +41,7 @@ const ChatModeSelector = ({ onModeChange, onCountChange, defaultMode = 'single',
     },
     {
       id: 'recent',
-      name: '最新メッセージ',
+      name: '最新N件',
       description: '最新のN件のメッセージを保存',
       icon: (
         <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -56,19 +69,34 @@ const ChatModeSelector = ({ onModeChange, onCountChange, defaultMode = 'single',
   }, [selectedMode, onModeChange]);
 
   useEffect(() => {
-    if (onCountChange && selectedMode === 'recent') {
-      onCountChange(messageCount);
+    const valid = selectedMode !== 'recent' || isCountValid;
+    if (onCountValidityChange) {
+      onCountValidityChange(valid);
     }
-  }, [messageCount, selectedMode, onCountChange]);
+    if (onCountChange && selectedMode === 'recent' && isCountValid) {
+      onCountChange(Number(messageCountInput));
+    }
+  }, [isCountValid, messageCountInput, selectedMode, onCountChange, onCountValidityChange]);
+
+  useEffect(() => {
+    setSelectedMode(defaultMode);
+  }, [defaultMode]);
+
+  useEffect(() => {
+    setMessageCountInput(String(clampRecentCount(defaultCount)));
+  }, [defaultCount]);
 
   const handleModeSelect = (modeId) => {
     setSelectedMode(modeId);
   };
 
   const handleCountChange = (e) => {
-    const value = parseInt(e.target.value) || 0;
-    setMessageCount(value);
-    setIsCountValid(value > 0 && value <= 100);
+    setMessageCountInput(e.target.value);
+  };
+
+  const handleCountBlur = () => {
+    if (!isCountValid) return;
+    setMessageCountInput(String(clampRecentCount(messageCountInput)));
   };
 
   return (
@@ -152,10 +180,11 @@ const ChatModeSelector = ({ onModeChange, onCountChange, defaultMode = 'single',
             <input
               id="message-count-input"
               type="number"
-              min="1"
-              max="100"
-              value={messageCount}
+              min={RECENT_COUNT_MIN}
+              max={RECENT_COUNT_MAX}
+              value={messageCountInput}
               onChange={handleCountChange}
+              onBlur={handleCountBlur}
               aria-describedby={!isCountValid ? "count-error" : "count-help"}
               aria-invalid={!isCountValid}
               className={`
@@ -169,7 +198,7 @@ const ChatModeSelector = ({ onModeChange, onCountChange, defaultMode = 'single',
           </div>
           {!isCountValid && (
             <p id="count-error" className="mt-1 text-xs text-red-400" role="alert">
-              1から1００の範囲で数値を入力してください
+              1から100の範囲で数値を入力してください
             </p>
           )}
         </div>
@@ -187,7 +216,7 @@ const ChatModeSelector = ({ onModeChange, onCountChange, defaultMode = 'single',
           </svg>
           <div className={`text-xs ${darkMode ? 'text-gray-400' : 'text-gray-600'}`}>
             <p className={`font-medium ${darkMode ? 'text-gray-300' : 'text-gray-700'}`}>コツ:</p>
-            <p>重要な返答には「単一メッセージ」、文脈のためには「最新メッセージ」、完全な記録のためには「全会話」を使用してください。</p>
+            <p>最新の返答には「最新メッセージ」、文脈のためには「最新N件」、完全な記録のためには「全会話」を使用してください。</p>
           </div>
         </div>
       </div>
