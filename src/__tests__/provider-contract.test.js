@@ -111,6 +111,67 @@ describe('provider capture contract', () => {
     expect(resolveChatGPTMessageFromButton(result.button)).toBe(assistant);
   });
 
+  test('ChatGPT save button falls back under assistant content while actions are missing', () => {
+    document.body.innerHTML = `
+      <article data-message-author-role="assistant" data-message-id="a1">
+        <div class="markdown"><p>Streaming answer</p></div>
+      </article>
+    `;
+
+    const assistant = document.querySelector('[data-message-author-role="assistant"]');
+    const content = document.querySelector('.markdown');
+    const result = addChatGPTSaveButton(assistant, createChatGPTSaveButton);
+    const fallback = assistant.querySelector('.chatvault-inline-actions');
+
+    expect(result.added).toBe(true);
+    expect(fallback).not.toBeNull();
+    expect(fallback.previousElementSibling).toBe(content);
+    expect(fallback.style.justifyContent).toBe('flex-start');
+    expect(fallback.querySelector('.chatvault-save-btn')).toBe(result.button);
+    expect(resolveChatGPTMessageFromButton(result.button)).toBe(assistant);
+  });
+
+  test('ChatGPT save button moves from fallback into turn actions when copy appears', () => {
+    document.body.innerHTML = `
+      <article data-message-author-role="assistant" data-message-id="a1">
+        <div class="markdown"><p>Final answer</p></div>
+      </article>
+    `;
+
+    const assistant = document.querySelector('[data-message-author-role="assistant"]');
+    const first = addChatGPTSaveButton(assistant, createChatGPTSaveButton);
+    const actions = document.createElement('div');
+    actions.setAttribute('data-testid', 'turn-actions');
+    actions.innerHTML = '<button data-testid="copy-turn-action-button">Copy</button>';
+    assistant.appendChild(actions);
+
+    const createButton = jest.fn(createChatGPTSaveButton);
+    const second = addChatGPTSaveButton(assistant, createButton);
+    const copy = actions.querySelector('[data-testid="copy-turn-action-button"]');
+
+    expect(second.added).toBe(false);
+    expect(second.button).toBe(first.button);
+    expect(createButton).not.toHaveBeenCalled();
+    expect(actions.querySelector('.chatvault-save-btn')).toBe(first.button);
+    expect(first.button.nextElementSibling).toBe(copy);
+    expect(assistant.querySelectorAll('.chatvault-save-btn')).toHaveLength(1);
+    expect(assistant.querySelector('.chatvault-inline-actions')).toBeNull();
+  });
+
+  test('ChatGPT save button is not added to user messages', () => {
+    document.body.innerHTML = `
+      <article data-message-author-role="user" data-message-id="u1">
+        <div class="whitespace-pre-wrap">Question</div>
+      </article>
+    `;
+
+    const user = document.querySelector('[data-message-author-role="user"]');
+    const result = addChatGPTSaveButton(user, createChatGPTSaveButton);
+
+    expect(result).toEqual({ added: false, button: null, target: null });
+    expect(document.querySelector('.chatvault-save-btn')).toBeNull();
+  });
+
   test('Gemini captureMessages returns all and recent messages with service', () => {
     document.title = 'Research - Gemini';
     document.body.innerHTML = `
@@ -338,6 +399,36 @@ describe('provider capture contract', () => {
     expect(document.querySelectorAll('.chatvault-save-btn')).toHaveLength(1);
     jest.advanceTimersByTime(1);
     expect(document.querySelectorAll('.chatvault-save-btn')).toHaveLength(2);
+    jest.useRealTimers();
+  });
+
+  test('ChatGPT MutationObserver rescans when copy action appears by attribute change', async () => {
+    jest.useFakeTimers();
+    document.body.innerHTML = `
+      <article data-message-author-role="assistant" data-message-id="a1">
+        <div class="markdown"><p>Initial</p></div>
+        <div data-testid="turn-actions">
+          <button id="copy-action">Copy</button>
+        </div>
+      </article>
+    `;
+
+    initializeChatGPT();
+    const button = document.querySelector('.chatvault-save-btn');
+    const fallback = document.querySelector('.chatvault-inline-actions');
+    const actions = document.querySelector('[data-testid="turn-actions"]');
+    const copy = document.getElementById('copy-action');
+
+    expect(fallback.querySelector('.chatvault-save-btn')).toBe(button);
+
+    copy.setAttribute('data-testid', 'copy-turn-action-button');
+    await Promise.resolve();
+    jest.advanceTimersByTime(150);
+
+    expect(actions.querySelector('.chatvault-save-btn')).toBe(button);
+    expect(button.nextElementSibling).toBe(copy);
+    expect(document.querySelector('.chatvault-inline-actions')).toBeNull();
+    expect(document.querySelectorAll('.chatvault-save-btn')).toHaveLength(1);
     jest.useRealTimers();
   });
 });

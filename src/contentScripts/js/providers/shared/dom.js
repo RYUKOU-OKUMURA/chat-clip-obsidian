@@ -27,19 +27,34 @@ export function cloneWithoutSelectors(element, ignoreSelectors = []) {
   return cloned;
 }
 
-export function createFallbackActionContainer(root) {
-  let wrapper = root.querySelector(':scope > .chatvault-inline-actions');
+export function createFallbackActionContainer(root, anchorElement = null, options = {}) {
+  let wrapper = anchorElement
+    ? root.querySelector('.chatvault-inline-actions')
+    : root.querySelector(':scope > .chatvault-inline-actions');
+  const justifyContent = options.justifyContent || 'flex-end';
+  const anchorParent = anchorElement?.parentElement;
+  const canUseAnchor = anchorElement && anchorParent && root.contains(anchorElement);
+
   if (!wrapper) {
     wrapper = document.createElement('div');
     wrapper.className = 'chatvault-inline-actions';
     wrapper.style.cssText = `
       display: flex;
-      justify-content: flex-end;
+      justify-content: ${justifyContent};
+      align-items: center;
       gap: 4px;
       margin-top: 6px;
     `;
+  }
+
+  wrapper.style.justifyContent = justifyContent;
+
+  if (canUseAnchor) {
+    anchorParent.insertBefore(wrapper, anchorElement.nextSibling);
+  } else if (wrapper.parentElement !== root) {
     root.appendChild(wrapper);
   }
+
   return wrapper;
 }
 

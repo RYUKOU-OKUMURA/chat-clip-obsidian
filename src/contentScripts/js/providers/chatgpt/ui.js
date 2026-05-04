@@ -124,6 +124,10 @@ function hasMessageContent(messageElement) {
   return Boolean((contentElement?.textContent || '').trim());
 }
 
+function isAssistantMessageRoot(messageElement) {
+  return messageElement?.getAttribute?.('data-message-author-role') === 'assistant';
+}
+
 function findBestMessageInTurn(turnElement) {
   if (!turnElement) return null;
   const candidates = [];
@@ -164,6 +168,34 @@ function findActionContainer(messageRoot) {
   return copyButton?.parentElement || null;
 }
 
+function getFallbackAnchor(messageRoot) {
+  const contentElement = getContentElement(messageRoot);
+  return contentElement && contentElement !== messageRoot && messageRoot.contains(contentElement)
+    ? contentElement
+    : null;
+}
+
+function getFallbackActionContainer(messageRoot) {
+  return createFallbackActionContainer(messageRoot, getFallbackAnchor(messageRoot), {
+    justifyContent: 'flex-start'
+  });
+}
+
+function cleanupEmptyFallbackContainers(root) {
+  root.querySelectorAll?.('.chatvault-inline-actions').forEach((wrapper) => {
+    if (!wrapper.querySelector('.chatvault-save-btn')) {
+      wrapper.remove();
+    }
+  });
+}
+
+function isRelevantMutationTarget(target) {
+  return Boolean(
+    target?.matches?.('[data-testid="copy-turn-action-button"], [data-testid="turn-actions"], [data-testid^="conversation-turn-"], [data-message-author-role]') ||
+    target?.closest?.('[data-testid^="conversation-turn-"], .conversation-turn, [data-message-author-role]')
+  );
+}
+
 function addSaveButton(messageElement, createSaveButton) {
   if (!inlineButtonsEnabled()) {
     return { added: false, button: null, target: null };
@@ -174,16 +206,27 @@ function addSaveButton(messageElement, createSaveButton) {
     return { added: false, button: null, target: null };
   }
 
+  if (!isAssistantMessageRoot(root)) {
+    return { added: false, button: null, target: null };
+  }
+
   // 既存のボタンを会話ターン単位でチェックして重複を防ぐ
   const scope = getButtonScope(root);
   const existingButton = scope.querySelector?.('.chatvault-save-btn') || root.querySelector('.chatvault-save-btn');
+  const actionContainer = findActionContainer(root);
   if (existingButton) {
+    existingButton.__chatvaultMessageElement = root;
+    if (actionContainer && existingButton.parentElement !== actionContainer) {
+      const result = addButtonToElement(actionContainer, existingButton);
+      cleanupEmptyFallbackContainers(scope);
+      return { added: false, button: existingButton, target: result.target };
+    }
     return { added: false, button: existingButton, target: existingButton.parentElement };
   }
 
   const button = createSaveButton();
   button.__chatvaultMessageElement = root;
-  const contentElement = findActionContainer(root) || createFallbackActionContainer(root);
+  const contentElement = actionContainer || getFallbackActionContainer(root);
 
   return addButtonToElement(contentElement, button);
 }
@@ -235,6 +278,12 @@ function initializeChatGPT() {
             shouldScan = true;
           }
         });
+      } else if (
+        mutation.type === 'attributes' &&
+        mutation.target?.nodeType === Node.ELEMENT_NODE &&
+        ['class', 'data-testid', 'data-message-author-role', 'data-message-id', 'aria-label'].includes(mutation.attributeName)
+      ) {
+        shouldScan = shouldScan || isRelevantMutationTarget(mutation.target);
       }
     });
     if (shouldScan && inlineButtonsEnabled()) {
