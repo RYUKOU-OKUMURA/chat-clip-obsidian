@@ -1,6 +1,6 @@
 ﻿import { getSelectors } from './checks.js';
 import { addSaveButton, createSaveButton, resolveMessageElementFromButton, initializeChatGPT } from './ui.js';
-import { extractSingleMessage, captureMessages } from './text.js';
+import { extractSingleMessage, extractCodeBlock, captureMessages } from './text.js';
 import * as Comm from './comm.js';
 
 const ChatGPTProvider = {
@@ -9,6 +9,7 @@ const ChatGPTProvider = {
   createSaveButton,
   resolveMessageElementFromButton,
   extractSingleMessage,
+  extractCodeBlock,
   captureMessages,
   initialize: initializeChatGPT,
   comm: Comm

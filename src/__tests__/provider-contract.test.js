@@ -1,5 +1,5 @@
-import { captureMessages as captureChatGPT } from '../contentScripts/js/providers/chatgpt/text.js';
-import { addSaveButton as addChatGPTSaveButton, createSaveButton as createChatGPTSaveButton, initializeChatGPT, resolveMessageElementFromButton as resolveChatGPTMessageFromButton } from '../contentScripts/js/providers/chatgpt/ui.js';
+import { captureMessages as captureChatGPT, extractCodeBlock as extractChatGPTCodeBlock } from '../contentScripts/js/providers/chatgpt/text.js';
+import { addSaveButton as addChatGPTSaveButton, addCodeBlockSaveButton as addChatGPTCodeBlockSaveButton, createSaveButton as createChatGPTSaveButton, createCodeBlockSaveButton as createChatGPTCodeBlockSaveButton, initializeChatGPT, resolveMessageElementFromButton as resolveChatGPTMessageFromButton } from '../contentScripts/js/providers/chatgpt/ui.js';
 import { captureMessages as captureGemini, extractSingleMessage as extractGeminiSingle } from '../contentScripts/js/providers/gemini/text.js';
 import { addSaveButton as addGeminiSaveButton, createSaveButton as createGeminiSaveButton, resolveMessageElementFromButton as resolveGeminiMessageFromButton } from '../contentScripts/js/providers/gemini/ui.js';
 import { captureMessages as captureClaude } from '../contentScripts/js/providers/claude/text.js';
@@ -87,6 +87,23 @@ describe('provider capture contract', () => {
     expect(all.messages[0].content).not.toContain('Save');
   });
 
+  test('ChatGPT extractCodeBlock preserves CodeMirror viewer line breaks', () => {
+    document.title = 'Model Notes - ChatGPT';
+    document.body.innerHTML = `
+      <div id="code-block-viewer" class="q9tKkq_viewer cm-editor">
+        <div class="cm-scroller">
+          <pre class="cm-content q9tKkq_readonly m-0"><code><span>現時点の体感では、</span><br><br><span>「目的地まで早く、正確に、快適に辿り着く」</span><br><span>という手段として見ると、</span></code></pre>
+        </div>
+      </div>
+    `;
+
+    const result = extractChatGPTCodeBlock(document.querySelector('#code-block-viewer'));
+
+    expect(result.title).toBe('Model Notes');
+    expect(result.content).toContain('```');
+    expect(result.content).toContain('現時点の体感では、\n\n「目的地まで早く、正確に、快適に辿り着く」\nという手段として見ると、');
+  });
+
   test('ChatGPT save button binds to assistant message inside a conversation turn wrapper', () => {
     document.body.innerHTML = `
       <article data-testid="conversation-turn-1">
@@ -109,6 +126,68 @@ describe('provider capture contract', () => {
     expect(result.added).toBe(true);
     expect(result.button.__chatvaultMessageElement).toBe(assistant);
     expect(resolveChatGPTMessageFromButton(result.button)).toBe(assistant);
+  });
+
+  test('ChatGPT code block save button coexists with message save button', () => {
+    document.body.innerHTML = `
+      <article data-message-author-role="assistant" data-message-id="a1">
+        <div class="markdown">
+          <p>Use this helper.</p>
+          <pre><code class="language-js">console.log("ok");</code></pre>
+        </div>
+        <div data-testid="turn-actions">
+          <button data-testid="copy-turn-action-button">Copy</button>
+        </div>
+      </article>
+    `;
+
+    const assistant = document.querySelector('[data-message-author-role="assistant"]');
+    const code = document.querySelector('pre > code');
+    const codeResult = addChatGPTCodeBlockSaveButton(code, createChatGPTCodeBlockSaveButton);
+    const messageResult = addChatGPTSaveButton(assistant, createChatGPTSaveButton);
+
+    expect(codeResult.added).toBe(true);
+    expect(codeResult.button.dataset.chatvaultSaveKind).toBe('code-block');
+    expect(codeResult.button.__chatvaultCodeBlockElement).toBe(document.querySelector('pre'));
+    expect(messageResult.added).toBe(true);
+    expect(messageResult.button.dataset.chatvaultSaveKind).toBe('message');
+    expect(document.querySelectorAll('.chatvault-save-btn')).toHaveLength(2);
+    expect(resolveChatGPTMessageFromButton(messageResult.button)).toBe(assistant);
+  });
+
+  test('ChatGPT code block save button anchors beside the native copy button', () => {
+    document.body.innerHTML = `
+      <article data-message-author-role="assistant" data-message-id="a1">
+        <div class="code-shell pointer-events-none">
+          <button class="flex gap-1 items-center pointer-events-auto size-9" aria-label="コピーする"><svg class="icon-md"><use href="/cdn/assets/sprites-core.svg#ce3544"></use></svg></button>
+          <div id="code-block-viewer" class="cm-editor">
+            <pre class="cm-content"><code>console.log("ok");</code></pre>
+          </div>
+        </div>
+      </article>
+    `;
+
+    const codeViewer = document.querySelector('#code-block-viewer');
+    const shell = document.querySelector('.code-shell');
+    const copyButton = document.querySelector('[aria-label="コピーする"]');
+    const result = addChatGPTCodeBlockSaveButton(codeViewer, createChatGPTCodeBlockSaveButton);
+
+    expect(result.added).toBe(true);
+    expect(result.target).toHaveClass('chatvault-code-actions');
+    expect(result.target.parentElement).toBe(shell);
+    expect(result.target.dataset.chatvaultPlacement).toBe('copy-parent-left');
+    expect(result.target.children[0]).toBe(result.button);
+    expect(copyButton.parentElement).toBe(shell);
+    expect(result.target.style.pointerEvents).toBe('auto');
+    expect(result.target.style.display).toBe('flex');
+    expect(result.target.style.position).toBe('absolute');
+    expect(result.target.style.left).toBe('-40px');
+    expect(result.target.style.top).toBe('0px');
+    expect(shell.style.position).toBe('relative');
+    expect(result.button.style.pointerEvents).toBe('auto');
+    expect(result.button.querySelector('span')).toBeNull();
+    expect(result.button.querySelector('.chatvault-code-save-icon')).not.toBeNull();
+    expect(result.target.querySelector('[data-chatvault-save-kind="code-block"]')).toBe(result.button);
   });
 
   test('ChatGPT save button falls back under assistant content while actions are missing', () => {

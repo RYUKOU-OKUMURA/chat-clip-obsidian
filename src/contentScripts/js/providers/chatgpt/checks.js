@@ -27,6 +27,12 @@ export function getSelectors() {
   ].join(', ');
 
   const content = '.markdown, [class*="markdown"], .prose, [class*="prose"], .whitespace-pre-wrap';
+  const codeBlock = [
+    '#code-block-viewer',
+    '.cm-editor .cm-content',
+    'pre > code',
+    'pre.cm-content'
+  ].join(', ');
 
-  return { container, userMessage, assistantMessage, content };
+  return { container, userMessage, assistantMessage, content, codeBlock };
 }

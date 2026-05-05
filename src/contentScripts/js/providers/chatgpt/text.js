@@ -14,6 +14,7 @@ function cleanClone(element) {
   return cloneWithoutSelectors(element, [
     '[data-testid="turn-actions"]',
     '[data-testid="copy-turn-action-button"]',
+    '.chatvault-code-actions',
     'button'
   ]);
 }
@@ -33,6 +34,81 @@ function getCaptureElements() {
       seen.add(element);
       return true;
     });
+}
+
+function getCodeContentElement(element) {
+  const selectors = getSelectors();
+  if (element.matches?.('.cm-content, pre > code, pre.cm-content')) return element;
+  if (element.matches?.(selectors.codeBlock) && element.querySelector?.('.cm-content, pre > code, pre.cm-content')) {
+    return element.querySelector('.cm-content, pre > code, pre.cm-content');
+  }
+  return element.querySelector?.('.cm-content, pre > code, pre.cm-content')
+    || element.closest?.(selectors.codeBlock)
+    || element;
+}
+
+function getCodeLanguage(element) {
+  const candidate = element.closest?.('[class*="language-"], [class*="lang-"]')
+    || element.querySelector?.('[class*="language-"], [class*="lang-"]')
+    || element;
+  const className = (candidate?.getAttribute?.('class') || '').toLowerCase();
+  const match = className.match(/(?:language|lang)-([a-z0-9+#-]+)/i);
+  return match ? match[1] : '';
+}
+
+function appendDomTextWithBreaks(node, chunks) {
+  if (!node) return;
+  if (node.nodeType === Node.TEXT_NODE) {
+    chunks.push(node.nodeValue || '');
+    return;
+  }
+  if (node.nodeType !== Node.ELEMENT_NODE) return;
+
+  const element = node;
+  if (element.matches?.('.chatvault-save-btn, .chatvault-code-actions, [data-chatvault-ignore]')) {
+    return;
+  }
+  if (element.tagName === 'BR') {
+    chunks.push('\n');
+    return;
+  }
+
+  Array.from(element.childNodes || []).forEach((child) => appendDomTextWithBreaks(child, chunks));
+  if (element.classList?.contains('cm-line') && chunks[chunks.length - 1] !== '\n') {
+    chunks.push('\n');
+  }
+}
+
+function normalizeCodeText(text) {
+  return String(text || '')
+    .replace(/\u00A0/g, ' ')
+    .replace(/\r\n/g, '\n')
+    .replace(/\r/g, '\n')
+    .replace(/[ \t]+\n/g, '\n')
+    .replace(/\n{3,}$/g, '\n\n')
+    .trim();
+}
+
+function buildFencedCode(text, language = '') {
+  const longestBackticks = Math.max(2, ...Array.from(text.matchAll(/`+/g), (match) => match[0].length));
+  const fence = '`'.repeat(Math.max(3, longestBackticks + 1));
+  return `${fence}${language || ''}\n${text}\n${fence}`;
+}
+
+export function extractCodeBlock(codeBlockElement) {
+  const contentElement = getCodeContentElement(codeBlockElement);
+  const chunks = [];
+  appendDomTextWithBreaks(contentElement, chunks);
+  const text = normalizeCodeText(chunks.join('') || contentElement?.textContent || '');
+  const title = stripServiceTitle(document.title, 'chatgpt');
+  const language = getCodeLanguage(contentElement);
+
+  return {
+    role: 'assistant',
+    content: text ? buildFencedCode(text, language) : '',
+    title,
+    language
+  };
 }
 
 export function extractSingleMessage(messageElement) {
