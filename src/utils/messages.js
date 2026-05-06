@@ -13,11 +13,11 @@ export function toUserMessage(code, detail) {
       // Keep message simple and consistent for both scripts
       return '対応サイトではありません（ChatGPTで使用してください）';
     case ErrorCodes.MissingVaultHandle:
-      return 'Vaultフォルダが未設定です。オプションからVaultを選択してください。';
+      return '直接保存用のVaultルートが未設定です。オプションからVaultルートを許可してください。';
     case ErrorCodes.ClipboardFailed:
       return 'クリップボードへのコピーに失敗しました。再度お試しください。';
     case ErrorCodes.FilesystemPermission:
-      return 'ファイル保存の権限がありません。Vaultフォルダの権限を再承認してください。';
+      return 'ファイル保存の権限がありません。直接保存用のVaultルートを再許可してください。';
     case ErrorCodes.ObsidianUriTooLong:
       return 'コンテンツが大きすぎてURIに載せられません。クリップボード保存に切り替えます。';
     case ErrorCodes.BackgroundNoTabId:

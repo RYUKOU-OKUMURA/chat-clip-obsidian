@@ -98,7 +98,7 @@ export async function handleFileSystemSave(content, relativePath) {
 
     let dirHandle = await loadDirectoryHandle();
     if (!dirHandle) {
-      throw new Error('Vaultフォルダが未設定です。オプション画面でObsidian Vaultフォルダを選択してください。');
+      throw new Error('直接保存用のVaultルートが未設定です。オプション画面でVaultルートを許可してください。');
     }
 
     const permission = await dirHandle.queryPermission({ mode: 'readwrite' });
@@ -111,7 +111,7 @@ export async function handleFileSystemSave(content, relativePath) {
 
     if (!(await isDirectoryHandleUsable(dirHandle))) {
       await removeDirectoryHandle();
-      throw new Error('保存先フォルダが見つかりません。Vaultフォルダを再選択してください。');
+      throw new Error('直接保存用のVaultルートが見つかりません。Vaultルートを再許可してください。');
     }
 
     const result = await writeMarkdownWithDirectoryHandle(dirHandle, content, safeRelativePath);
@@ -123,7 +123,7 @@ export async function handleFileSystemSave(content, relativePath) {
       await removeDirectoryHandle();
     }
     console.error('[Chat Clip Obsidian] File System Access APIエラー:', error);
-    return { success: false, error: error.message };
+    return { success: false, error: error.message, errorCode: error.code || 'FILESYSTEM_SAVE_FAILED' };
   }
 }
 

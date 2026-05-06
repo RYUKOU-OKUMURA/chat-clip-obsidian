@@ -1,4 +1,5 @@
 import { sanitizeRelativePath } from '../data/validation.js';
+import { createInvalidVaultRootError } from '../chat/vaultRoot.js';
 
 const DB_NAME = 'ChatVaultDB';
 const STORE_NAME = 'handles';
@@ -87,7 +88,12 @@ export async function isDirectoryHandleUsable(handle) {
 
 export async function writeMarkdownWithDirectoryHandle(dirHandle, content, relativePath) {
   if (!dirHandle) {
-    throw new Error('Vaultフォルダが未選択です。');
+    throw new Error('直接保存用のVaultルートが未選択です。');
+  }
+
+  const invalidVaultRootError = createInvalidVaultRootError(dirHandle.name);
+  if (invalidVaultRootError) {
+    throw invalidVaultRootError;
   }
 
   const safeRelativePath = sanitizeRelativePath(relativePath, 'ChatVault');

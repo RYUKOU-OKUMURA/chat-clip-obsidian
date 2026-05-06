@@ -4,6 +4,7 @@ import { toast } from "../../utils/notifications/toast.js";
 import { getSync } from "../../utils/browser/chrome.js";
 import { loadDirectoryHandle, saveDirectoryHandle } from "../../utils/browser/fileSystemAccess.js";
 import { normalizeChatMode, normalizeSaveMethod } from "../../utils/chat/formatting.js";
+import { getVaultRootWarning } from "../../utils/chat/vaultRoot.js";
 import { clampRecentCount } from "../popup/components/recentCount.js";
 import {
   buildChatSavePath,
@@ -103,21 +104,34 @@ const FieldLabel = ({ htmlFor, children, help }) => (
   </label>
 );
 
-const PreviewPath = ({ path, label = "今回の保存先プレビュー" }) => (
+const SavePathPreview = ({ pathInfo, rootLabel, label }) => (
   <div className="mt-4 rounded-lg border border-purple-500/40 bg-purple-950/30 p-4">
     <div className="text-sm font-semibold text-purple-200">{label}</div>
-    <code className="mt-2 block break-all text-sm text-purple-50">{path}</code>
+    <dl className="mt-3 space-y-2 text-sm">
+      <div>
+        <dt className="text-purple-200/80">直接保存用のVaultルート</dt>
+        <dd className="break-all text-purple-50">{rootLabel || "未許可"}</dd>
+      </div>
+      <div>
+        <dt className="text-purple-200/80">Vault内フォルダ</dt>
+        <dd className="break-all text-purple-50">{pathInfo.folderPath || "Vault直下"}</dd>
+      </div>
+      <div>
+        <dt className="text-purple-200/80">保存ファイル</dt>
+        <dd className="break-all text-purple-50">{pathInfo.filename}</dd>
+      </div>
+    </dl>
   </div>
 );
 
-const DestinationPanel = ({ title, description, children, previewLabel, previewPath }) => (
+const DestinationPanel = ({ title, description, children, previewLabel, pathInfo, rootLabel }) => (
   <div className="rounded-lg border border-gray-700 bg-gray-900/25 p-4">
     <div className="mb-4">
       <h3 className="text-lg font-semibold text-white">{title}</h3>
       <p className="text-sm text-gray-400 mt-1">{description}</p>
     </div>
     {children}
-    <PreviewPath path={previewPath} label={previewLabel} />
+    <SavePathPreview pathInfo={pathInfo} rootLabel={rootLabel} label={previewLabel} />
   </div>
 );
 
@@ -136,6 +150,7 @@ const OptionsApp = () => {
   const [saveMethod, setSaveMethod] = useState("filesystem");
   const [downloadsFolder, setDownloadsFolder] = useState("ChatVault");
   const [folderPath, setFolderPath] = useState("");
+  const [vaultRootWarning, setVaultRootWarning] = useState("");
   const [legacySettingsDetected, setLegacySettingsDetected] = useState(false);
   const [showAdvancedSettings, setShowAdvancedSettings] = useState(false);
 
@@ -235,7 +250,10 @@ const OptionsApp = () => {
       if (result.defaultMessageCount) setDefaultMessageCount(clampRecentCount(result.defaultMessageCount));
       if (result.saveMethod) setSaveMethod(normalizeSaveMethod(result.saveMethod));
       if (result.downloadsFolder) setDownloadsFolder(result.downloadsFolder);
-      if (result.selectedFolderPath) setFolderPath(result.selectedFolderPath);
+      if (result.selectedFolderPath) {
+        setFolderPath(result.selectedFolderPath);
+        setVaultRootWarning(getVaultRootWarning(result.selectedFolderPath));
+      }
     });
   }, []);
 
@@ -252,9 +270,11 @@ const OptionsApp = () => {
       });
 
       setFolderPath(dirHandle.name);
+      const warning = getVaultRootWarning(dirHandle.name);
+      setVaultRootWarning(warning);
       chrome.storage.sync.set({ selectedFolderPath: dirHandle.name });
       await saveDirectoryHandle(dirHandle);
-      toast.show(`Vaultフォルダを選択しました: ${dirHandle.name}`, 'success');
+      toast.show(warning || `直接保存用のVaultルートを許可しました: ${dirHandle.name}`, warning ? 'warning' : 'success');
     } catch (err) {
       if (err.name === 'AbortError') return;
       console.error('[Chat Clip Obsidian Options] Error selecting folder:', err);
@@ -289,7 +309,7 @@ const OptionsApp = () => {
 
       const vaultHandle = await loadDirectoryHandle().catch(() => null);
       if (!vaultHandle) {
-        toast.show('先にObsidian Vaultフォルダを選択してください。', 'error');
+        toast.show('先に「直接保存用のVaultルートを許可」でObsidianのVaultルートを選んでください。', 'error');
         return;
       }
 
@@ -299,7 +319,7 @@ const OptionsApp = () => {
       });
       const relativeSegments = await vaultHandle.resolve?.(selectedHandle);
       if (!Array.isArray(relativeSegments)) {
-        toast.show('保存先には、選択済みVaultフォルダ内のフォルダを選んでください。', 'error');
+        toast.show('このフォルダは現在許可されているVaultルートの外です。先に「直接保存用のVaultルートを許可」で正しいVaultを選んでください。', 'error');
         return;
       }
 
@@ -368,6 +388,11 @@ const OptionsApp = () => {
     const invalidCharacterPattern = /[\\:*?"<>|]/;
     if (vault.trim() && invalidCharacterPattern.test(vault)) {
       toast.show('無効な文字が検出されました。Vault名には次の文字を使用しないでください: /, \\, :, *, ?, ", <, >, |', 'error');
+      return;
+    }
+
+    if (vaultRootWarning) {
+      toast.show(`${vaultRootWarning} 直接保存用のVaultルートを選び直してください。`, 'error');
       return;
     }
 
@@ -447,16 +472,16 @@ const OptionsApp = () => {
         )}
 
         <Section
-          title="かんたん設定"
-          description="保存方法に合わせて、保存先と必要な連携情報だけを設定します。"
+          title="Obsidian連携"
+          description="Vault名と、Chromeに直接保存を許可するVaultルートを設定します。"
         >
           <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
             <div>
               <FieldLabel
                 htmlFor="vault"
-                help="Obsidianで表示されているVault名です。URI fallbackで使います。"
+                help="自動保存に失敗した時、Obsidianを開くために使います。File System APIの直接保存だけなら空欄でも保存できます。"
               >
-                Obsidian Vault名（自動選択時のみ必須）
+                Obsidian Vault名
               </FieldLabel>
               <input
                 type="text"
@@ -469,28 +494,39 @@ const OptionsApp = () => {
             </div>
 
             <div>
-              <FieldLabel help="File System APIで直接保存するVaultのルートフォルダです。">
-                Obsidian Vaultフォルダ
+              <FieldLabel help="ChromeにVaultへの書き込み権限を与えます。Obsidianで開いているVaultの一番上のフォルダを選んでください。">
+                直接保存用のVaultルート
               </FieldLabel>
               <button
                 type="button"
                 onClick={handleSelectFolder}
                 className="bg-blue-600 hover:bg-blue-700 text-white font-bold py-3 px-4 rounded-lg transition-colors duration-200"
               >
-                {folderPath ? `${folderPath} (変更)` : 'Vaultフォルダを選択'}
+                {folderPath ? `${folderPath} (変更)` : 'Vaultルートを許可'}
               </button>
               <p className="text-sm text-gray-400 mt-2">
-                選ぶのはVaultのルートです。親フォルダを選ぶと、その下に保存フォルダが作られます。
+                現在の許可ルート: {folderPath || '未許可'}
               </p>
+              {vaultRootWarning && (
+                <p className="mt-2 rounded-lg border border-amber-500/50 bg-amber-950/30 px-3 py-2 text-sm text-amber-100">
+                  {vaultRootWarning}
+                </p>
+              )}
             </div>
           </div>
+        </Section>
 
+        <Section
+          title="保存先"
+          description="チャット全文とコードブロック単体保存のVault内フォルダを分けて設定します。"
+        >
           <div className="mt-6 grid grid-cols-1 xl:grid-cols-2 gap-5">
             <DestinationPanel
               title="チャット全文の保存先"
               description="ポップアップの会話全体保存と通常のチャット保存で使うVault内フォルダです。"
               previewLabel="チャット保存先プレビュー"
-              previewPath={previewPath.fullFilePath}
+              pathInfo={previewPath}
+              rootLabel={folderPath}
             >
               <div className="grid grid-cols-1 gap-3">
                 {SAVE_LOCATION_OPTIONS.map((option) => (
@@ -558,7 +594,8 @@ const OptionsApp = () => {
               title="コードブロックの保存先"
               description="コードブロック内に表示される保存ボタンから単体保存した時だけ使います。"
               previewLabel="コードブロック保存先プレビュー"
-              previewPath={previewCodeBlockPath.fullFilePath}
+              pathInfo={previewCodeBlockPath}
+              rootLabel={folderPath}
             >
               <div className="grid grid-cols-1 gap-3">
                 {CODE_BLOCK_LOCATION_OPTIONS.map((option) => (

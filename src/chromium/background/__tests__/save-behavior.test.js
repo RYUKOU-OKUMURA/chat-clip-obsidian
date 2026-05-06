@@ -2,12 +2,17 @@ describe('background save behavior', () => {
   let messageListener;
   let writeMarkdownWithDirectoryHandle;
   let downloadsDownload;
+  let getSyncMock;
 
   beforeEach(async () => {
     jest.resetModules();
     messageListener = null;
     writeMarkdownWithDirectoryHandle = jest.fn();
     downloadsDownload = jest.fn();
+    getSyncMock = jest.fn(async () => ({
+      saveMethod: 'downloads',
+      downloadsFolder: 'ChatVault'
+    }));
 
     global.chrome = {
       runtime: {
@@ -57,10 +62,7 @@ describe('background save behavior', () => {
     jest.doMock('../../../utils/browser/chrome.js', () => ({
       createTab: jest.fn(),
       openUrlWithAutoClose: jest.fn(),
-      getSync: jest.fn(async () => ({
-        saveMethod: 'downloads',
-        downloadsFolder: 'ChatVault'
-      }))
+      getSync: getSyncMock
     }));
     jest.doMock('../../../utils/browser/fileSystemAccess.js', () => ({
       loadDirectoryHandle: jest.fn(),
@@ -87,8 +89,7 @@ describe('background save behavior', () => {
       conversationTitle: 'Empty'
     }, { tab: { id: 1, url: 'https://chatgpt.com/c/1' } }, sendResponse);
 
-    await Promise.resolve();
-    await Promise.resolve();
+    await new Promise((resolve) => setTimeout(resolve, 0));
 
     expect(sendResponse).toHaveBeenCalledWith(expect.objectContaining({
       success: false,
@@ -108,12 +109,37 @@ describe('background save behavior', () => {
       title: 'Empty selection'
     }, { tab: { id: 1, url: 'https://chatgpt.com/c/1' } }, sendResponse);
 
-    await Promise.resolve();
-    await Promise.resolve();
+    await new Promise((resolve) => setTimeout(resolve, 0));
 
     expect(sendResponse).toHaveBeenCalledWith(expect.objectContaining({
       success: false,
       errorCode: 'EMPTY_CONTENT'
+    }));
+    expect(writeMarkdownWithDirectoryHandle).not.toHaveBeenCalled();
+    expect(downloadsDownload).not.toHaveBeenCalled();
+  });
+
+  test('saveSingleMessage blocks direct filesystem save when vault root looks like a destination folder', async () => {
+    getSyncMock.mockResolvedValueOnce({
+      saveMethod: 'filesystem',
+      downloadsFolder: 'ChatVault',
+      selectedFolderPath: 'AIchat'
+    });
+    const sendResponse = jest.fn();
+
+    messageListener({
+      action: 'saveSingleMessage',
+      messageType: 'single',
+      messageContent: '### Assistant\n\nhello',
+      service: 'chatgpt',
+      conversationTitle: 'Root warning'
+    }, { tab: { id: 1, url: 'https://chatgpt.com/c/1' } }, sendResponse);
+
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    expect(sendResponse).toHaveBeenCalledWith(expect.objectContaining({
+      success: false,
+      errorCode: 'INVALID_VAULT_ROOT'
     }));
     expect(writeMarkdownWithDirectoryHandle).not.toHaveBeenCalled();
     expect(downloadsDownload).not.toHaveBeenCalled();

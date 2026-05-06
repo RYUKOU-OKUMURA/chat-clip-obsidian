@@ -143,4 +143,23 @@ describe('OptionsApp settings UX', () => {
     expect(savedSettings.saveLocationPreset).toBe('custom');
     expect(savedSettings.chatFolderPath).toBe('ChatVault/Snippets');
   });
+
+  test('blocks saving settings when the direct save root looks like a destination folder', async () => {
+    const user = userEvent.setup();
+    mockStorageGet({
+      saveMethod: 'filesystem',
+      selectedFolderPath: 'AIchat'
+    });
+
+    render(<OptionsApp />);
+
+    expect(await screen.findByText(/保存先フォルダに見えます/)).toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: '設定を保存' }));
+
+    expect(toast.show).toHaveBeenCalledWith(
+      expect.stringContaining('直接保存用のVaultルートを選び直してください'),
+      'error'
+    );
+    expect(chrome.storage.sync.set).not.toHaveBeenCalled();
+  });
 });

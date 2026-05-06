@@ -19,6 +19,7 @@ import {
   normalizeSaveMethod
 } from '../../utils/chat/formatting.js';
 import { buildChatSavePath } from '../../utils/chat/savePath.js';
+import { getVaultRootWarning } from '../../utils/chat/vaultRoot.js';
 import { createLogger } from '../../utils/logger.js';
 
 const log = createLogger('Chat Clip Obsidian Background');
@@ -105,12 +106,12 @@ function buildNoteContent({ settings, title, serviceLabel, sourceUrl, saved, mod
 
 async function ensureExtensionDirectoryPermission(dirHandle) {
   if (!dirHandle) {
-    throw new Error('Vaultフォルダが未設定です。OptionsでObsidian Vaultフォルダを選択してください。');
+    throw new Error('直接保存用のVaultルートが未設定です。OptionsでVaultルートを許可してください。');
   }
 
   const current = await dirHandle.queryPermission?.({ mode: 'readwrite' });
   if (current === 'granted') return;
-  throw new Error('Vaultフォルダの書き込み権限がありません。PopupまたはOptionsでVaultフォルダを再選択してください。');
+  throw new Error('直接保存用のVaultルートへの書き込み権限がありません。PopupまたはOptionsでVaultルートを再許可してください。');
 }
 
 async function saveViaExtensionFileSystem(content, relativePath) {
@@ -119,7 +120,7 @@ async function saveViaExtensionFileSystem(content, relativePath) {
     await ensureExtensionDirectoryPermission(dirHandle);
     if (!(await isDirectoryHandleUsable(dirHandle))) {
       await removeDirectoryHandle();
-      throw new Error('保存先フォルダが見つかりません。Vaultフォルダを再選択してください。');
+      throw new Error('直接保存用のVaultルートが見つかりません。Vaultルートを再許可してください。');
     }
     return await writeMarkdownWithDirectoryHandle(dirHandle, content, relativePath);
   } catch (error) {
@@ -143,7 +144,9 @@ function sendToTab(tabId, payload) {
         return;
       }
       if (response && response.success === false) {
-        reject(new Error(response.error || 'Content script request failed'));
+        const error = new Error(response.error || 'Content script request failed');
+        error.code = response.errorCode;
+        reject(error);
         return;
       }
       resolve(response || { success: true });
@@ -256,7 +259,8 @@ async function prepareMarkdownSave({ markdown, service, title, sourceUrl, mode, 
     'codeBlockFolderPath',
     'chatNoteFormat',
     'saveMethod',
-    'downloadsFolder'
+    'downloadsFolder',
+    'selectedFolderPath'
   ]);
 
   const serviceLabel = getServiceLabel(service);
@@ -296,6 +300,8 @@ async function prepareMarkdownSave({ markdown, service, title, sourceUrl, mode, 
   const vaultName = String(settings.obsidianVault || '').trim();
   const saveMethod = normalizeSaveMethod(settings.saveMethod);
   const downloadsFolder = settings.downloadsFolder || 'ChatVault';
+  const selectedFolderPath = settings.selectedFolderPath || '';
+  const vaultRootWarning = getVaultRootWarning(selectedFolderPath);
 
   return {
     success: true,
@@ -315,7 +321,9 @@ async function prepareMarkdownSave({ markdown, service, title, sourceUrl, mode, 
     mode: normalizedMode,
     vaultName,
     saveMethod,
-    downloadsFolder
+    downloadsFolder,
+    selectedFolderPath,
+    vaultRootWarning
   };
 }
 
@@ -339,12 +347,22 @@ async function saveMarkdownToObsidian({ markdown, service, title, sourceUrl, mod
     mode: normalizedMode,
     vaultName,
     saveMethod,
-    downloadsFolder
+    downloadsFolder,
+    selectedFolderPath,
+    vaultRootWarning
   } = prepared;
   const tabId = sender?.tab?.id;
   const failures = [];
 
   log.info('Saving markdown', { service: serviceLabel, mode: normalizedMode, saveMethod, fullFilePath });
+
+  if ((saveMethod === 'filesystem' || saveMethod === 'auto') && vaultRootWarning) {
+    return {
+      success: false,
+      error: `${vaultRootWarning} 現在の直接保存用のVaultルート: ${selectedFolderPath || '未許可'}`,
+      errorCode: 'INVALID_VAULT_ROOT'
+    };
+  }
 
   if (saveMethod === 'filesystem' || saveMethod === 'auto') {
     try {
@@ -371,6 +389,13 @@ async function saveMarkdownToObsidian({ markdown, service, title, sourceUrl, mod
         title: noteTitle
       };
     } catch (error) {
+      if (error.code === 'INVALID_VAULT_ROOT') {
+        return {
+          success: false,
+          error: error.message,
+          errorCode: error.code
+        };
+      }
       failures.push(`extension-filesystem: ${error.message}`);
       log.warn('Extension File System Access save failed, trying content tab handle:', error);
     }
@@ -399,6 +424,13 @@ async function saveMarkdownToObsidian({ markdown, service, title, sourceUrl, mod
         title: noteTitle
       };
     } catch (error) {
+      if (error.code === 'INVALID_VAULT_ROOT') {
+        return {
+          success: false,
+          error: error.message,
+          errorCode: error.code
+        };
+      }
       failures.push(`tab-filesystem: ${error.message}`);
       log.warn('Content tab File System Access save failed, falling back:', error);
     }
@@ -702,6 +734,7 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
           'chatNoteFormat',
           'saveMethod',
           'downloadsFolder',
+          'selectedFolderPath',
           'defaultMode',
           'defaultMessageCount'
         ]);
