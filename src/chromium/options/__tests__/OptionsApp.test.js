@@ -1,8 +1,9 @@
 import React from 'react';
-import { render, screen, waitFor } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import OptionsApp from '../OptionsApp';
 import { toast } from '../../../utils/notifications/toast';
+import { loadDirectoryHandle } from '../../../utils/browser/fileSystemAccess';
 
 jest.mock('../../../utils/notifications/toast', () => ({
   toast: {
@@ -11,6 +12,7 @@ jest.mock('../../../utils/notifications/toast', () => ({
 }));
 
 jest.mock('../../../utils/browser/fileSystemAccess', () => ({
+  loadDirectoryHandle: jest.fn(),
   saveDirectoryHandle: jest.fn()
 }));
 
@@ -28,6 +30,8 @@ describe('OptionsApp settings UX', () => {
       callback?.();
     });
     chrome.runtime.sendMessage.mockImplementation(() => {});
+    loadDirectoryHandle.mockResolvedValue(null);
+    delete window.showDirectoryPicker;
   });
 
   test('saves filesystem settings without requiring a vault name', async () => {
@@ -86,5 +90,57 @@ describe('OptionsApp settings UX', () => {
       'error'
     );
     expect(chrome.storage.sync.set).not.toHaveBeenCalled();
+  });
+
+  test('saves separate chat and code block folder destinations', async () => {
+    const user = userEvent.setup();
+    mockStorageGet({ saveMethod: 'filesystem' });
+
+    render(<OptionsApp />);
+
+    const customFolderInputs = await screen.findAllByLabelText(/カスタムフォルダ/);
+    fireEvent.change(customFolderInputs[0], { target: { value: 'ChatVault/Chats/{service}' } });
+    await user.click(screen.getByRole('button', { name: /CodeBlocks\/言語別/ }));
+    await user.click(screen.getByRole('button', { name: '設定を保存' }));
+
+    await waitFor(() => {
+      expect(chrome.storage.sync.set).toHaveBeenCalled();
+    });
+    const [savedSettings] = chrome.storage.sync.set.mock.calls[0];
+    expect(savedSettings.saveLocationPreset).toBe('custom');
+    expect(savedSettings.chatFolderPath).toBe('ChatVault/Chats/{service}');
+    expect(savedSettings.codeBlockFolderPath).toBe('ChatVault/CodeBlocks/{service}/{language}');
+  });
+
+  test('sets destination folders from a selected folder inside the vault', async () => {
+    const user = userEvent.setup();
+    const selectedHandle = { name: 'Snippets' };
+    const vaultHandle = {
+      name: 'Vault',
+      resolve: jest.fn(async (handle) => handle === selectedHandle ? ['ChatVault', 'Snippets'] : null)
+    };
+    mockStorageGet({ saveMethod: 'filesystem' });
+    loadDirectoryHandle.mockResolvedValue(vaultHandle);
+    window.showDirectoryPicker = jest.fn(async () => selectedHandle);
+
+    render(<OptionsApp />);
+
+    const folderButtons = await screen.findAllByRole('button', { name: 'フォルダを選択' });
+    await user.click(folderButtons[0]);
+    await waitFor(() => {
+      expect(screen.getAllByLabelText(/カスタムフォルダ/)[0]).toHaveValue('ChatVault/Snippets');
+    });
+    await user.click(screen.getByRole('button', { name: '設定を保存' }));
+
+    await waitFor(() => {
+      expect(chrome.storage.sync.set).toHaveBeenCalled();
+    });
+    const [savedSettings] = chrome.storage.sync.set.mock.calls[0];
+    expect(window.showDirectoryPicker).toHaveBeenCalledWith({
+      mode: 'readwrite',
+      startIn: vaultHandle
+    });
+    expect(savedSettings.saveLocationPreset).toBe('custom');
+    expect(savedSettings.chatFolderPath).toBe('ChatVault/Snippets');
   });
 });

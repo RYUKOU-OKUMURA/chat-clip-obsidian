@@ -2,11 +2,12 @@
 import React, { useMemo, useState, useEffect } from "react";
 import { toast } from "../../utils/notifications/toast.js";
 import { getSync } from "../../utils/browser/chrome.js";
-import { saveDirectoryHandle } from "../../utils/browser/fileSystemAccess.js";
+import { loadDirectoryHandle, saveDirectoryHandle } from "../../utils/browser/fileSystemAccess.js";
 import { normalizeChatMode, normalizeSaveMethod } from "../../utils/chat/formatting.js";
 import { clampRecentCount } from "../popup/components/recentCount.js";
 import {
   buildChatSavePath,
+  CODE_BLOCK_CONTENT_KIND,
   DEFAULT_SAVE_LOCATION_PRESET,
   getSaveLocationPresetLabel,
   normalizeChatFolderTemplate,
@@ -18,6 +19,7 @@ import {
 const DEFAULT_CHAT_NOTE_FORMAT = "# {title}\n\n{content}";
 const SAMPLE_TITLE = "Title";
 const SAMPLE_SERVICE = "chatgpt";
+const SAMPLE_CODE_LANGUAGE = "js";
 
 const SAVE_LOCATION_OPTIONS = [
   {
@@ -34,6 +36,27 @@ const SAVE_LOCATION_OPTIONS = [
     id: SAVE_LOCATION_PRESETS.DATE_FOLDER,
     title: "ChatVault/日付別",
     description: "保存日ごとにまとめます。日次ログとして扱いたい場合に向いています。"
+  }
+];
+
+const CODE_BLOCK_LOCATION_OPTIONS = [
+  {
+    id: "same",
+    title: "チャット保存先と同じ",
+    description: "コードブロックだけを分けない場合はこちらです。",
+    template: ""
+  },
+  {
+    id: "service",
+    title: "CodeBlocks/サービス別",
+    description: "コードだけをサービスごとにまとめます。",
+    template: "ChatVault/CodeBlocks/{service}"
+  },
+  {
+    id: "language",
+    title: "CodeBlocks/言語別",
+    description: "サービスとプログラミング言語で整理します。",
+    template: "ChatVault/CodeBlocks/{service}/{language}"
   }
 ];
 
@@ -80,10 +103,21 @@ const FieldLabel = ({ htmlFor, children, help }) => (
   </label>
 );
 
-const PreviewPath = ({ path }) => (
+const PreviewPath = ({ path, label = "今回の保存先プレビュー" }) => (
   <div className="mt-4 rounded-lg border border-purple-500/40 bg-purple-950/30 p-4">
-    <div className="text-sm font-semibold text-purple-200">今回の保存先プレビュー</div>
+    <div className="text-sm font-semibold text-purple-200">{label}</div>
     <code className="mt-2 block break-all text-sm text-purple-50">{path}</code>
+  </div>
+);
+
+const DestinationPanel = ({ title, description, children, previewLabel, previewPath }) => (
+  <div className="rounded-lg border border-gray-700 bg-gray-900/25 p-4">
+    <div className="mb-4">
+      <h3 className="text-lg font-semibold text-white">{title}</h3>
+      <p className="text-sm text-gray-400 mt-1">{description}</p>
+    </div>
+    {children}
+    <PreviewPath path={previewPath} label={previewLabel} />
   </div>
 );
 
@@ -94,6 +128,7 @@ const OptionsApp = () => {
   const [showSaveButton, setShowSaveButton] = useState(true);
   const [saveLocationPreset, setSaveLocationPreset] = useState(DEFAULT_SAVE_LOCATION_PRESET);
   const [chatFolderPath, setChatFolderPath] = useState("");
+  const [codeBlockFolderPath, setCodeBlockFolderPath] = useState("");
   const [chatNoteFormat, setChatNoteFormat] = useState(DEFAULT_CHAT_NOTE_FORMAT);
   const [chatNoteFormatError, setChatNoteFormatError] = useState("");
   const [showPreview, setShowPreview] = useState(true);
@@ -108,15 +143,30 @@ const OptionsApp = () => {
     settingsVersion: legacySettingsDetected ? undefined : SETTINGS_VERSION,
     saveLocationPreset,
     chatFolderPath,
+    codeBlockFolderPath,
     chatFolderPathExplicit: saveLocationPreset === SAVE_LOCATION_PRESETS.CUSTOM && Boolean(chatFolderPath)
-  }), [chatFolderPath, legacySettingsDetected, saveLocationPreset]);
+  }), [chatFolderPath, codeBlockFolderPath, legacySettingsDetected, saveLocationPreset]);
 
   const previewPath = useMemo(() => buildChatSavePath({
     settings: previewSettings,
     service: SAMPLE_SERVICE,
     title: SAMPLE_TITLE,
-    mode: defaultMode
-  }), [defaultMode, previewSettings]);
+    mode: 'full'
+  }), [previewSettings]);
+
+  const previewCodeBlockPath = useMemo(() => buildChatSavePath({
+    settings: previewSettings,
+    service: SAMPLE_SERVICE,
+    title: SAMPLE_TITLE,
+    mode: 'single',
+    contentKind: CODE_BLOCK_CONTENT_KIND,
+    language: SAMPLE_CODE_LANGUAGE
+  }), [previewSettings]);
+
+  const activeCodeBlockLocationOption = useMemo(() => {
+    const normalized = normalizeChatFolderTemplate(codeBlockFolderPath);
+    return CODE_BLOCK_LOCATION_OPTIONS.find((option) => option.template === normalized)?.id || "custom";
+  }, [codeBlockFolderPath]);
 
   const diagnostics = useMemo(() => JSON.stringify({
     settingsVersion: SETTINGS_VERSION,
@@ -125,15 +175,19 @@ const OptionsApp = () => {
     saveLocationPreset,
     saveLocationLabel: getSaveLocationPresetLabel(saveLocationPreset),
     chatFolderPath: saveLocationPreset === SAVE_LOCATION_PRESETS.CUSTOM ? chatFolderPath : "",
+    codeBlockFolderPath: codeBlockFolderPath || "(チャット保存先と同じ)",
     legacySettingsDetected,
     saveMethod,
     downloadsFolder,
-    previewPath: previewPath.fullFilePath
+    previewPath: previewPath.fullFilePath,
+    previewCodeBlockPath: previewCodeBlockPath.fullFilePath
   }, null, 2), [
     chatFolderPath,
+    codeBlockFolderPath,
     downloadsFolder,
     folderPath,
     legacySettingsDetected,
+    previewCodeBlockPath.fullFilePath,
     previewPath.fullFilePath,
     saveLocationPreset,
     saveMethod,
@@ -152,6 +206,7 @@ const OptionsApp = () => {
       "showSaveButton",
       "chatFolderPath",
       "chatFolderPathExplicit",
+      "codeBlockFolderPath",
       "chatNoteFormat",
       "showPreview",
       "defaultMessageCount",
@@ -168,6 +223,7 @@ const OptionsApp = () => {
       setChatFolderPath(location.preset === SAVE_LOCATION_PRESETS.CUSTOM
         ? location.folderTemplate
         : normalizeChatFolderTemplate(result.chatFolderPath));
+      setCodeBlockFolderPath(normalizeChatFolderTemplate(result.codeBlockFolderPath));
       setLegacySettingsDetected(location.legacySettingsDetected);
       if (location.legacySettingsDetected || location.preset === SAVE_LOCATION_PRESETS.CUSTOM) {
         setShowAdvancedSettings(true);
@@ -209,9 +265,57 @@ const OptionsApp = () => {
   const handlePresetChange = (preset) => {
     setSaveLocationPreset(preset);
     setLegacySettingsDetected(false);
+    if (preset !== SAVE_LOCATION_PRESETS.CUSTOM) {
+      setChatFolderPath('');
+    }
     if (preset === SAVE_LOCATION_PRESETS.CUSTOM && !chatFolderPath) {
       setChatFolderPath('ChatVault/{service}');
       setShowAdvancedSettings(true);
+    }
+  };
+
+  const handleChatFolderInputChange = (value) => {
+    setChatFolderPath(value);
+    setSaveLocationPreset(SAVE_LOCATION_PRESETS.CUSTOM);
+    setLegacySettingsDetected(false);
+  };
+
+  const handleSelectDestinationFolder = async (target) => {
+    try {
+      if (!('showDirectoryPicker' in window)) {
+        toast.show('File System Access APIはサポートされていません。Chrome 86+またはEdge 86+を使用してください。', 'error');
+        return;
+      }
+
+      const vaultHandle = await loadDirectoryHandle().catch(() => null);
+      if (!vaultHandle) {
+        toast.show('先にObsidian Vaultフォルダを選択してください。', 'error');
+        return;
+      }
+
+      const selectedHandle = await window.showDirectoryPicker({
+        mode: 'readwrite',
+        startIn: vaultHandle
+      });
+      const relativeSegments = await vaultHandle.resolve?.(selectedHandle);
+      if (!Array.isArray(relativeSegments)) {
+        toast.show('保存先には、選択済みVaultフォルダ内のフォルダを選んでください。', 'error');
+        return;
+      }
+
+      const relativePath = normalizeChatFolderTemplate(relativeSegments.join('/'));
+      if (target === 'chat') {
+        setChatFolderPath(relativePath);
+        setSaveLocationPreset(relativePath ? SAVE_LOCATION_PRESETS.CUSTOM : SAVE_LOCATION_PRESETS.VAULT_ROOT);
+        setLegacySettingsDetected(false);
+      } else {
+        setCodeBlockFolderPath(relativePath);
+      }
+      toast.show(`保存先フォルダを設定しました: ${relativePath || 'Vault直下'}`, 'success');
+    } catch (error) {
+      if (error?.name === 'AbortError') return;
+      console.error('[Chat Clip Obsidian Options] Error selecting destination folder:', error);
+      toast.show('保存先フォルダの選択に失敗しました: ' + (error?.message || error), 'error');
     }
   };
 
@@ -226,12 +330,13 @@ const OptionsApp = () => {
       toast.show(message, 'error');
       return;
     }
-    toast.show(`保存先プレビュー: ${previewPath.fullFilePath}`, 'success');
+    toast.show(`保存先プレビュー: チャット ${previewPath.fullFilePath} / コード ${previewCodeBlockPath.fullFilePath}`, 'success');
   };
 
   const handleResetDefaults = () => {
     setSaveLocationPreset(DEFAULT_SAVE_LOCATION_PRESET);
     setChatFolderPath("");
+    setCodeBlockFolderPath("");
     setChatNoteFormat(DEFAULT_CHAT_NOTE_FORMAT);
     setChatNoteFormatError("");
     setDefaultMode("single");
@@ -270,6 +375,7 @@ const OptionsApp = () => {
     const normalizedChatFolderPath = normalizedPreset === SAVE_LOCATION_PRESETS.CUSTOM
       ? normalizeChatFolderTemplate(chatFolderPath)
       : '';
+    const normalizedCodeBlockFolderPath = normalizeChatFolderTemplate(codeBlockFolderPath);
     const normalizedChatNoteFormat = normalizeChatNoteFormat(chatNoteFormat);
     if (!chatNoteFormatHasContent(normalizedChatNoteFormat)) {
       const message = 'チャットノートフォーマットには {content} を含めてください。';
@@ -291,6 +397,7 @@ const OptionsApp = () => {
         saveLocationPreset: normalizedPreset,
         chatFolderPath: normalizedChatFolderPath,
         chatFolderPathExplicit: normalizedPreset === SAVE_LOCATION_PRESETS.CUSTOM && Boolean(normalizedChatFolderPath),
+        codeBlockFolderPath: normalizedCodeBlockFolderPath,
         chatNoteFormat: normalizedChatNoteFormat,
         showPreview,
         defaultMessageCount: normalizedMessageCount,
@@ -307,10 +414,11 @@ const OptionsApp = () => {
 
         setLegacySettingsDetected(false);
         setChatFolderPath(normalizedChatFolderPath);
+        setCodeBlockFolderPath(normalizedCodeBlockFolderPath);
         setChatNoteFormat(normalizedChatNoteFormat);
         setChatNoteFormatError("");
         setDefaultMessageCount(normalizedMessageCount);
-        toast.show(`設定を保存しました。保存先: ${previewPath.fullFilePath}`, 'success');
+        toast.show(`設定を保存しました。チャット保存先: ${previewPath.fullFilePath}`, 'success');
         chrome.runtime.sendMessage({ action: 'saveSettings', settings: {} });
       }
     );
@@ -377,39 +485,130 @@ const OptionsApp = () => {
             </div>
           </div>
 
-          <div className="mt-6">
-            <div className="text-base font-medium text-white mb-3">保存先プリセット</div>
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-              {SAVE_LOCATION_OPTIONS.map((option) => (
-                <label
-                  key={option.id}
-                  className={`block cursor-pointer rounded-lg border p-4 transition-colors ${
-                    saveLocationPreset === option.id
-                      ? 'border-purple-400 bg-purple-950/50'
-                      : 'border-gray-700 bg-gray-800 hover:bg-gray-700'
-                  }`}
-                >
-                  <input
-                    type="radio"
-                    name="saveLocationPreset"
-                    value={option.id}
-                    checked={saveLocationPreset === option.id}
-                    onChange={() => handlePresetChange(option.id)}
-                    className="sr-only"
-                  />
-                  <span className="block font-semibold text-white">{option.title}</span>
-                  {option.id === SAVE_LOCATION_PRESETS.SERVICE_FOLDER && (
-                    <span className="mt-1 inline-block rounded bg-emerald-500/20 px-2 py-0.5 text-xs text-emerald-200">
-                      おすすめ
-                    </span>
-                  )}
-                  <span className="block text-sm text-gray-300 mt-2">{option.description}</span>
-                </label>
-              ))}
-            </div>
-          </div>
+          <div className="mt-6 grid grid-cols-1 xl:grid-cols-2 gap-5">
+            <DestinationPanel
+              title="チャット全文の保存先"
+              description="ポップアップの会話全体保存と通常のチャット保存で使うVault内フォルダです。"
+              previewLabel="チャット保存先プレビュー"
+              previewPath={previewPath.fullFilePath}
+            >
+              <div className="grid grid-cols-1 gap-3">
+                {SAVE_LOCATION_OPTIONS.map((option) => (
+                  <label
+                    key={option.id}
+                    className={`block cursor-pointer rounded-lg border p-4 transition-colors ${
+                      saveLocationPreset === option.id
+                        ? 'border-purple-400 bg-purple-950/50'
+                        : 'border-gray-700 bg-gray-800 hover:bg-gray-700'
+                    }`}
+                  >
+                    <input
+                      type="radio"
+                      name="saveLocationPreset"
+                      value={option.id}
+                      checked={saveLocationPreset === option.id}
+                      onChange={() => handlePresetChange(option.id)}
+                      className="sr-only"
+                    />
+                    <span className="block font-semibold text-white">{option.title}</span>
+                    {option.id === SAVE_LOCATION_PRESETS.SERVICE_FOLDER && (
+                      <span className="mt-1 inline-block rounded bg-emerald-500/20 px-2 py-0.5 text-xs text-emerald-200">
+                        おすすめ
+                      </span>
+                    )}
+                    <span className="block text-sm text-gray-300 mt-2">{option.description}</span>
+                  </label>
+                ))}
+              </div>
+              <div className="mt-4">
+                <div className="flex items-center justify-between gap-3 mb-2">
+                  <FieldLabel
+                    htmlFor="customChatFolderPath"
+                    help="Vault内の相対フォルダです。使用可能: {service}, {date}, {title}, {type}"
+                  >
+                    カスタムフォルダ
+                  </FieldLabel>
+                  <button
+                    type="button"
+                    onClick={() => handleSelectDestinationFolder('chat')}
+                    className="shrink-0 bg-blue-600 hover:bg-blue-700 text-white font-semibold py-2 px-3 rounded-lg transition-colors"
+                  >
+                    フォルダを選択
+                  </button>
+                </div>
+                <input
+                  type="text"
+                  id="customChatFolderPath"
+                  className="w-full p-3 bg-gray-700 rounded-lg border border-gray-600 focus:outline-none focus:ring-2 focus:ring-purple-400 font-mono"
+                  value={chatFolderPath}
+                  onChange={(e) => handleChatFolderInputChange(e.target.value)}
+                  onFocus={() => {
+                    if (saveLocationPreset !== SAVE_LOCATION_PRESETS.CUSTOM && !chatFolderPath) {
+                      setChatFolderPath('ChatVault/{service}');
+                    }
+                    setSaveLocationPreset(SAVE_LOCATION_PRESETS.CUSTOM);
+                    setLegacySettingsDetected(false);
+                  }}
+                  placeholder="ChatVault/{service}"
+                />
+              </div>
+            </DestinationPanel>
 
-          <PreviewPath path={previewPath.fullFilePath} />
+            <DestinationPanel
+              title="コードブロックの保存先"
+              description="コードブロック内に表示される保存ボタンから単体保存した時だけ使います。"
+              previewLabel="コードブロック保存先プレビュー"
+              previewPath={previewCodeBlockPath.fullFilePath}
+            >
+              <div className="grid grid-cols-1 gap-3">
+                {CODE_BLOCK_LOCATION_OPTIONS.map((option) => (
+                  <button
+                    type="button"
+                    key={option.id}
+                    onClick={() => setCodeBlockFolderPath(option.template)}
+                    className={`block rounded-lg border p-4 text-left transition-colors ${
+                      activeCodeBlockLocationOption === option.id
+                        ? 'border-purple-400 bg-purple-950/50'
+                        : 'border-gray-700 bg-gray-800 hover:bg-gray-700'
+                    }`}
+                  >
+                    <span className="block font-semibold text-white">{option.title}</span>
+                    {option.id === "service" && (
+                      <span className="mt-1 inline-block rounded bg-emerald-500/20 px-2 py-0.5 text-xs text-emerald-200">
+                        おすすめ
+                      </span>
+                    )}
+                    <span className="block text-sm text-gray-300 mt-2">{option.description}</span>
+                  </button>
+                ))}
+              </div>
+              <div className="mt-4">
+                <div className="flex items-center justify-between gap-3 mb-2">
+                  <FieldLabel
+                    htmlFor="codeBlockFolderPath"
+                    help="Vault内の相対フォルダです。使用可能: {service}, {date}, {title}, {type}, {language}"
+                  >
+                    カスタムフォルダ
+                  </FieldLabel>
+                  <button
+                    type="button"
+                    onClick={() => handleSelectDestinationFolder('code')}
+                    className="shrink-0 bg-blue-600 hover:bg-blue-700 text-white font-semibold py-2 px-3 rounded-lg transition-colors"
+                  >
+                    フォルダを選択
+                  </button>
+                </div>
+                <input
+                  type="text"
+                  id="codeBlockFolderPath"
+                  className="w-full p-3 bg-gray-700 rounded-lg border border-gray-600 focus:outline-none focus:ring-2 focus:ring-purple-400 font-mono"
+                  value={codeBlockFolderPath}
+                  onChange={(e) => setCodeBlockFolderPath(e.target.value)}
+                  placeholder="ChatVault/CodeBlocks/{service}"
+                />
+              </div>
+            </DestinationPanel>
+          </div>
 
           <button
             type="button"
@@ -493,36 +692,6 @@ const OptionsApp = () => {
 
           {showAdvancedSettings && (
             <div className="mt-5 space-y-6">
-              <div>
-                <div className="flex items-center justify-between gap-3 mb-2">
-                  <FieldLabel
-                    htmlFor="customChatFolderPath"
-                    help="必要な場合だけ使います。使用可能: {service}, {date}, {title}, {type}"
-                  >
-                    カスタム保存先テンプレート
-                  </FieldLabel>
-                  <button
-                    type="button"
-                    onClick={() => handlePresetChange(SAVE_LOCATION_PRESETS.CUSTOM)}
-                    className="shrink-0 bg-purple-600 hover:bg-purple-700 text-white font-semibold py-2 px-3 rounded-lg transition-colors"
-                  >
-                    カスタムを使う
-                  </button>
-                </div>
-                <input
-                  type="text"
-                  id="customChatFolderPath"
-                  className="w-full p-3 bg-gray-700 rounded-lg border border-gray-600 focus:outline-none focus:ring-2 focus:ring-purple-400 font-mono"
-                  value={chatFolderPath}
-                  onChange={(e) => {
-                    setChatFolderPath(e.target.value);
-                    setSaveLocationPreset(SAVE_LOCATION_PRESETS.CUSTOM);
-                    setLegacySettingsDetected(false);
-                  }}
-                  placeholder="ChatVault/{service}"
-                />
-              </div>
-
               <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
                 <div>
                   <FieldLabel htmlFor="saveMethod">保存方法</FieldLabel>

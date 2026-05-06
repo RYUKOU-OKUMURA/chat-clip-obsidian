@@ -11,6 +11,7 @@ export const SAVE_LOCATION_PRESETS = {
 };
 
 export const DEFAULT_SAVE_LOCATION_PRESET = SAVE_LOCATION_PRESETS.VAULT_ROOT;
+export const CODE_BLOCK_CONTENT_KIND = 'code-block';
 
 const PRESET_TEMPLATES = {
   [SAVE_LOCATION_PRESETS.VAULT_ROOT]: '',
@@ -70,7 +71,23 @@ export function resolveSaveLocationSettings(settings = {}) {
   };
 }
 
-export function renderChatFolderPath(template, { serviceLabel, dateStr, sanitizedTitle, mode }) {
+export function resolveCodeBlockSaveLocationSettings(settings = {}) {
+  const folderTemplate = normalizeChatFolderTemplate(settings.codeBlockFolderPath);
+  if (folderTemplate) {
+    return {
+      ...resolveSaveLocationSettings(settings),
+      folderTemplate,
+      codeBlockFolderPathExplicit: true
+    };
+  }
+
+  return {
+    ...resolveSaveLocationSettings(settings),
+    codeBlockFolderPathExplicit: false
+  };
+}
+
+export function renderChatFolderPath(template, { serviceLabel, dateStr, sanitizedTitle, mode, language = '' }) {
   const folderTemplate = normalizeChatFolderTemplate(template);
   if (!folderTemplate) return '';
 
@@ -79,13 +96,22 @@ export function renderChatFolderPath(template, { serviceLabel, dateStr, sanitize
     .replace(/\{date\}/g, dateStr)
     .replace(/\{title\}/g, sanitizedTitle)
     .replace(/\{type\}/g, mode)
+    .replace(/\{language\}/g, sanitizeForFilename(language, 'code'))
     .replace(/\/+/g, '/')
     .replace(/^\/|\/$/g, '');
 
   return rendered ? sanitizeRelativePath(rendered, 'ChatVault') : '';
 }
 
-export function buildChatSavePath({ settings = {}, service, title, mode, savedAt = new Date() }) {
+export function buildChatSavePath({
+  settings = {},
+  service,
+  title,
+  mode,
+  savedAt = new Date(),
+  contentKind = 'chat',
+  language = ''
+}) {
   const serviceLabel = getServiceLabel(service);
   const normalizedMode = normalizeChatMode(mode);
   const savedDate = savedAt instanceof Date ? savedAt : new Date(savedAt);
@@ -95,12 +121,16 @@ export function buildChatSavePath({ settings = {}, service, title, mode, savedAt
   const noteTitle = title || `${serviceLabel} Chat - ${dateStr}`;
   const sanitizedTitle = sanitizeForFilename(noteTitle, 'untitled');
   const filename = `${dateStr}_${sanitizedTitle}.md`;
-  const location = resolveSaveLocationSettings(settings);
+  const isCodeBlock = contentKind === CODE_BLOCK_CONTENT_KIND;
+  const location = isCodeBlock
+    ? resolveCodeBlockSaveLocationSettings(settings)
+    : resolveSaveLocationSettings(settings);
   const folderPath = renderChatFolderPath(location.folderTemplate, {
     serviceLabel,
     dateStr,
     sanitizedTitle,
-    mode: normalizedMode
+    mode: isCodeBlock && location.codeBlockFolderPathExplicit ? CODE_BLOCK_CONTENT_KIND : normalizedMode,
+    language
   });
   const fullFilePath = folderPath ? `${folderPath}/${filename}` : filename;
 
@@ -116,6 +146,8 @@ export function buildChatSavePath({ settings = {}, service, title, mode, savedAt
     sanitizedTitle,
     filename,
     folderPath,
-    fullFilePath
+    fullFilePath,
+    contentKind: isCodeBlock ? CODE_BLOCK_CONTENT_KIND : 'chat',
+    codeBlockFolderPathExplicit: Boolean(location.codeBlockFolderPathExplicit)
   };
 }

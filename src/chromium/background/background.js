@@ -25,6 +25,7 @@ const log = createLogger('Chat Clip Obsidian Background');
 const SHORT_URI_CONTENT_LIMIT = 6000;
 const DEFAULT_CHAT_NOTE_FORMAT = '# {title}\n\n{content}';
 const SPEAKER_HEADING_ONLY_RE = /^#{1,6}\s+(User|Assistant|Selection)\s*$/gim;
+const CODE_BLOCK_CONTENT_KIND = 'code-block';
 
 function hasSaveableContent(markdown) {
   return Boolean(normalizeMarkdown(markdown || '').replace(SPEAKER_HEADING_ONLY_RE, '').trim());
@@ -252,6 +253,7 @@ async function prepareMarkdownSave({ markdown, service, title, sourceUrl, mode, 
     'saveLocationPreset',
     'chatFolderPath',
     'chatFolderPathExplicit',
+    'codeBlockFolderPath',
     'chatNoteFormat',
     'saveMethod',
     'downloadsFolder'
@@ -259,13 +261,16 @@ async function prepareMarkdownSave({ markdown, service, title, sourceUrl, mode, 
 
   const serviceLabel = getServiceLabel(service);
   const normalizedMode = normalizeChatMode(mode || metadata.type);
+  const contentKind = metadata.type === CODE_BLOCK_CONTENT_KIND ? CODE_BLOCK_CONTENT_KIND : 'chat';
   const saved = new Date().toISOString();
   const pathInfo = buildChatSavePath({
     settings,
     service,
     title,
     mode: normalizedMode,
-    savedAt: saved
+    savedAt: saved,
+    contentKind,
+    language: metadata.language || ''
   });
   const {
     noteTitle,
@@ -274,7 +279,8 @@ async function prepareMarkdownSave({ markdown, service, title, sourceUrl, mode, 
     fullFilePath,
     saveLocationPreset,
     folderTemplate,
-    legacySettingsDetected
+    legacySettingsDetected,
+    codeBlockFolderPathExplicit
   } = pathInfo;
   const body = normalizeMarkdown(markdown);
   const fullContent = buildNoteContent({
@@ -300,6 +306,8 @@ async function prepareMarkdownSave({ markdown, service, title, sourceUrl, mode, 
     saveLocationPreset,
     folderTemplate,
     legacySettingsDetected,
+    contentKind,
+    codeBlockFolderPathExplicit,
     service: serviceLabel,
     serviceLabel,
     title: noteTitle,
@@ -324,6 +332,8 @@ async function saveMarkdownToObsidian({ markdown, service, title, sourceUrl, mod
     saveLocationPreset,
     folderTemplate,
     legacySettingsDetected,
+    contentKind,
+    codeBlockFolderPathExplicit,
     serviceLabel,
     title: noteTitle,
     mode: normalizedMode,
@@ -355,6 +365,8 @@ async function saveMarkdownToObsidian({ markdown, service, title, sourceUrl, mod
         saveLocationPreset,
         folderTemplate,
         legacySettingsDetected,
+        contentKind,
+        codeBlockFolderPathExplicit,
         service: serviceLabel,
         title: noteTitle
       };
@@ -381,6 +393,8 @@ async function saveMarkdownToObsidian({ markdown, service, title, sourceUrl, mod
         saveLocationPreset,
         folderTemplate,
         legacySettingsDetected,
+        contentKind,
+        codeBlockFolderPathExplicit,
         service: serviceLabel,
         title: noteTitle
       };
@@ -406,6 +420,8 @@ async function saveMarkdownToObsidian({ markdown, service, title, sourceUrl, mod
         saveLocationPreset,
         folderTemplate,
         legacySettingsDetected,
+        contentKind,
+        codeBlockFolderPathExplicit,
         service: serviceLabel,
         title: noteTitle
       };
@@ -429,6 +445,8 @@ async function saveMarkdownToObsidian({ markdown, service, title, sourceUrl, mod
           saveLocationPreset,
           folderTemplate,
           legacySettingsDetected,
+          contentKind,
+          codeBlockFolderPathExplicit,
           service: serviceLabel,
           title: noteTitle
         };
@@ -457,6 +475,8 @@ async function saveMarkdownToObsidian({ markdown, service, title, sourceUrl, mod
       saveLocationPreset,
       folderTemplate,
       legacySettingsDetected,
+      contentKind,
+      codeBlockFolderPathExplicit,
       downloadId: downloadResult.downloadId,
       service: serviceLabel,
       title: noteTitle,
@@ -678,6 +698,7 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
           'showSaveButton',
           'chatFolderPath',
           'chatFolderPathExplicit',
+          'codeBlockFolderPath',
           'chatNoteFormat',
           'saveMethod',
           'downloadsFolder',

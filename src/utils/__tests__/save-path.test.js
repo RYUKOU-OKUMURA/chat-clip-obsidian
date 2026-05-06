@@ -1,5 +1,6 @@
 import {
   buildChatSavePath,
+  CODE_BLOCK_CONTENT_KIND,
   detectLegacySaveLocationSettings,
   resolveSaveLocationSettings,
   SAVE_LOCATION_PRESETS
@@ -77,5 +78,53 @@ describe('chat save path utilities', () => {
 
     expect(location.preset).toBe(SAVE_LOCATION_PRESETS.VAULT_ROOT);
     expect(location.folderTemplate).toBe('');
+  });
+
+  test('uses code block folder template only for code block saves', () => {
+    const settings = {
+      settingsVersion: 2,
+      saveLocationPreset: SAVE_LOCATION_PRESETS.SERVICE_FOLDER,
+      codeBlockFolderPath: 'ChatVault/CodeBlocks/{service}/{language}'
+    };
+
+    const chatPath = buildChatSavePath({
+      settings,
+      service: 'chatgpt',
+      title: 'Research Notes',
+      mode: 'single',
+      savedAt
+    });
+    const codePath = buildChatSavePath({
+      settings,
+      service: 'chatgpt',
+      title: 'Research Notes',
+      mode: 'single',
+      savedAt,
+      contentKind: CODE_BLOCK_CONTENT_KIND,
+      language: 'js'
+    });
+
+    expect(chatPath.fullFilePath).toBe('ChatVault/ChatGPT/2026-05-02_Research_Notes.md');
+    expect(codePath.fullFilePath).toBe('ChatVault/CodeBlocks/ChatGPT/js/2026-05-02_Research_Notes.md');
+    expect(codePath.codeBlockFolderPathExplicit).toBe(true);
+  });
+
+  test('falls back to chat folder template when code block folder is blank', () => {
+    const path = buildChatSavePath({
+      settings: {
+        settingsVersion: 2,
+        saveLocationPreset: SAVE_LOCATION_PRESETS.CUSTOM,
+        chatFolderPath: 'ChatVault/{service}/{type}'
+      },
+      service: 'claude',
+      title: 'Research Notes',
+      mode: 'single',
+      savedAt,
+      contentKind: CODE_BLOCK_CONTENT_KIND,
+      language: 'python'
+    });
+
+    expect(path.folderPath).toBe('ChatVault/Claude/single');
+    expect(path.codeBlockFolderPathExplicit).toBe(false);
   });
 });
