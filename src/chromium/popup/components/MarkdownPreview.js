@@ -1,53 +1,52 @@
-import React, { useState, useEffect } from 'react';
+import React, { useMemo, useState } from 'react';
+
+const escapeHtml = (text) => {
+  const div = document.createElement('div');
+  div.textContent = text;
+  return div.innerHTML;
+};
 
 const MarkdownPreview = ({ content, isLoading = false, maxHeight = '400px', darkMode = false }) => {
   const [isExpanded, setIsExpanded] = useState(false);
-  const [formattedContent, setFormattedContent] = useState('');
 
-  useEffect(() => {
+  const formattedContent = useMemo(() => {
     // Simple markdown formatting for preview
-    if (content) {
-      let formatted = content;
-      
-      // Headers
-      formatted = formatted.replace(/^### (.+)$/gm, `<h3 class=\"text-lg font-semibold mt-4 mb-2 ${darkMode ? 'text-gray-200' : 'text-gray-800'}\">$1</h3>`);
-      formatted = formatted.replace(/^## (.+)$/gm, `<h2 class=\"text-xl font-bold mt-4 mb-2 ${darkMode ? 'text-gray-100' : 'text-gray-900'}\">$1</h2>`);
-      formatted = formatted.replace(/^# (.+)$/gm, `<h1 class=\"text-2xl font-bold mt-4 mb-3 ${darkMode ? 'text-white' : 'text-gray-900'}\">$1</h1>`);
-      
-      // Code blocks
-      formatted = formatted.replace(/```(\w+)?\n([\s\S]*?)```/g, (match, lang, code) => {
-        return `<div class=\"rounded-md p-3 my-2 overflow-x-auto ${darkMode ? 'bg-gray-900' : 'bg-gray-100'}\">
+    if (!content) return '';
+
+    let formatted = content;
+
+    // Headers
+    formatted = formatted.replace(/^### (.+)$/gm, `<h3 class=\"text-lg font-semibold mt-4 mb-2 ${darkMode ? 'text-gray-200' : 'text-gray-800'}\">$1</h3>`);
+    formatted = formatted.replace(/^## (.+)$/gm, `<h2 class=\"text-xl font-bold mt-4 mb-2 ${darkMode ? 'text-gray-100' : 'text-gray-900'}\">$1</h2>`);
+    formatted = formatted.replace(/^# (.+)$/gm, `<h1 class=\"text-2xl font-bold mt-4 mb-3 ${darkMode ? 'text-white' : 'text-gray-900'}\">$1</h1>`);
+
+    // Code blocks
+    formatted = formatted.replace(/```(\w+)?\n([\s\S]*?)```/g, (match, lang, code) => {
+      return `<div class=\"rounded-md p-3 my-2 overflow-x-auto ${darkMode ? 'bg-gray-900' : 'bg-gray-100'}\">
           <code class=\"text-sm font-mono ${darkMode ? 'text-gray-300' : 'text-gray-800'}\">${escapeHtml(code.trim())}</code>
         </div>`;
-      });
-      
-      // Inline code
-      formatted = formatted.replace(/`([^`]+)`/g, `<code class=\"px-1 py-0.5 rounded text-sm ${darkMode ? 'bg-gray-700 text-gray-300' : 'bg-gray-100 text-gray-800'}\">$1</code>`);
-      
-      // Bold
-      formatted = formatted.replace(/\*\*([^\*]+)\*\*/g, `<strong class=\"font-semibold ${darkMode ? 'text-gray-100' : 'text-gray-900'}\">$1</strong>`);
-      
-      // Italic
-      formatted = formatted.replace(/\*([^\*]+)\*/g, '<em class="italic">$1</em>');
-      
-      // Links
-      formatted = formatted.replace(/\[([^\]]+)\]\(([^)]+)\)/g, `<a href=\"$2\" class=\"hover:underline ${darkMode ? 'text-blue-400' : 'text-blue-600'}\">$1</a>`);
-      
-      // Line breaks
-      formatted = formatted.replace(/\n/g, '<br />');
-      
-      // Math blocks (basic support)
-      formatted = formatted.replace(/\$\$([\s\S]*?)\$\$/g, `<div class=\"p-2 my-2 rounded font-mono text-sm ${darkMode ? 'bg-gray-800 text-green-400' : 'bg-gray-100 text-green-700'}\">$1</div>`);
-      
-      setFormattedContent(formatted);
-    }
-  }, [content]);
+    });
 
-  const escapeHtml = (text) => {
-    const div = document.createElement('div');
-    div.textContent = text;
-    return div.innerHTML;
-  };
+    // Inline code
+    formatted = formatted.replace(/`([^`]+)`/g, `<code class=\"px-1 py-0.5 rounded text-sm ${darkMode ? 'bg-gray-700 text-gray-300' : 'bg-gray-100 text-gray-800'}\">$1</code>`);
+
+    // Bold
+    formatted = formatted.replace(/\*\*([^\*]+)\*\*/g, `<strong class=\"font-semibold ${darkMode ? 'text-gray-100' : 'text-gray-900'}\">$1</strong>`);
+
+    // Italic
+    formatted = formatted.replace(/\*([^\*]+)\*/g, '<em class="italic">$1</em>');
+
+    // Links
+    formatted = formatted.replace(/\[([^\]]+)\]\(([^)]+)\)/g, `<a href=\"$2\" class=\"hover:underline ${darkMode ? 'text-blue-400' : 'text-blue-600'}\">$1</a>`);
+
+    // Line breaks
+    formatted = formatted.replace(/\n/g, '<br />');
+
+    // Math blocks (basic support)
+    formatted = formatted.replace(/\$\$([\s\S]*?)\$\$/g, `<div class=\"p-2 my-2 rounded font-mono text-sm ${darkMode ? 'bg-gray-800 text-green-400' : 'bg-gray-100 text-green-700'}\">$1</div>`);
+
+    return formatted;
+  }, [content, darkMode]);
 
   if (isLoading) {
     return (

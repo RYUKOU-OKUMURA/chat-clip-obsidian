@@ -3,6 +3,12 @@ import { getSelectors } from './checks.js';
 import { toMarkdownIfHtml } from './markdown.js';
 import { stripServiceTitle } from '../../../../utils/chat/formatting.js';
 import { cloneWithoutSelectors } from '../shared/dom.js';
+import {
+  appendTextWithBreaks,
+  buildFencedCode,
+  detectCodeLanguageFromClass,
+  normalizeCodeText
+} from '../shared/code.js';
 
 function getContentElement(messageElement) {
   const selectors = getSelectors();
@@ -47,61 +53,16 @@ function getCodeContentElement(element) {
     || element;
 }
 
-function getCodeLanguage(element) {
-  const candidate = element.closest?.('[class*="language-"], [class*="lang-"]')
-    || element.querySelector?.('[class*="language-"], [class*="lang-"]')
-    || element;
-  const className = (candidate?.getAttribute?.('class') || '').toLowerCase();
-  const match = className.match(/(?:language|lang)-([a-z0-9+#-]+)/i);
-  return match ? match[1] : '';
-}
-
-function appendDomTextWithBreaks(node, chunks) {
-  if (!node) return;
-  if (node.nodeType === Node.TEXT_NODE) {
-    chunks.push(node.nodeValue || '');
-    return;
-  }
-  if (node.nodeType !== Node.ELEMENT_NODE) return;
-
-  const element = node;
-  if (element.matches?.('.chatvault-save-btn, .chatvault-code-actions, [data-chatvault-ignore]')) {
-    return;
-  }
-  if (element.tagName === 'BR') {
-    chunks.push('\n');
-    return;
-  }
-
-  Array.from(element.childNodes || []).forEach((child) => appendDomTextWithBreaks(child, chunks));
-  if (element.classList?.contains('cm-line') && chunks[chunks.length - 1] !== '\n') {
-    chunks.push('\n');
-  }
-}
-
-function normalizeCodeText(text) {
-  return String(text || '')
-    .replace(/\u00A0/g, ' ')
-    .replace(/\r\n/g, '\n')
-    .replace(/\r/g, '\n')
-    .replace(/[ \t]+\n/g, '\n')
-    .replace(/\n{3,}$/g, '\n\n')
-    .trim();
-}
-
-function buildFencedCode(text, language = '') {
-  const longestBackticks = Math.max(2, ...Array.from(text.matchAll(/`+/g), (match) => match[0].length));
-  const fence = '`'.repeat(Math.max(3, longestBackticks + 1));
-  return `${fence}${language || ''}\n${text}\n${fence}`;
-}
-
 export function extractCodeBlock(codeBlockElement) {
   const contentElement = getCodeContentElement(codeBlockElement);
   const chunks = [];
-  appendDomTextWithBreaks(contentElement, chunks);
+  appendTextWithBreaks(contentElement, chunks, {
+    skipSelector: '.chatvault-save-btn, .chatvault-code-actions, [data-chatvault-ignore]',
+    lineBreakAfterSelector: '.cm-line'
+  });
   const text = normalizeCodeText(chunks.join('') || contentElement?.textContent || '');
   const title = stripServiceTitle(document.title, 'chatgpt');
-  const language = getCodeLanguage(contentElement);
+  const language = detectCodeLanguageFromClass(contentElement);
 
   return {
     role: 'assistant',

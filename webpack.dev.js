@@ -5,8 +5,9 @@ const CopyPlugin = require("copy-webpack-plugin");
 const tailwindcss = require("tailwindcss");
 const autoprefixer = require("autoprefixer");
 
-module.exports = (env) => {
+module.exports = (env = {}) => {
   const browser = env.browser || "chromium"; // Default to chromium if not specified
+  const contentScriptCss = path.resolve(__dirname, "src/contentScripts/css");
 
   return {
     entry: {
@@ -24,7 +25,7 @@ module.exports = (env) => {
     module: {
       rules: [
         {
-          test: /\.js|jsx$/,
+          test: /\.(js|jsx)$/,
           exclude: /node_modules/,
           use: {
             loader: "babel-loader",
@@ -38,6 +39,7 @@ module.exports = (env) => {
         },
         {
           test: /\.css$/,
+          exclude: contentScriptCss,
           use: [
             MiniCssExtractPlugin.loader,
             "css-loader",

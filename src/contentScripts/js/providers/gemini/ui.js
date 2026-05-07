@@ -7,12 +7,16 @@ import {
   getSelectors
 } from './checks.js';
 import { createFallbackActionContainer, getDirectChild, isVisibleElement } from '../shared/dom.js';
+import { findGeminiCodeActionContainer, resolveGeminiCodeBlockRoot } from './dom.js';
 
 // グローバル変数
 let globalTooltip = null;
 let globalObserver = null;
 let rescanTimer = null;
 const SAVE_TOOLTIP_TEXT = 'Obsidianに保存する';
+const CODE_SAVE_TOOLTIP_TEXT = 'コードブロックをObsidianに保存する';
+const MESSAGE_SAVE_BUTTON_SELECTOR = '.chatvault-save-btn:not([data-chatvault-save-kind="code-block"])';
+const CODE_SAVE_BUTTON_SELECTOR = '.chatvault-save-btn[data-chatvault-save-kind="code-block"]';
 
 function inlineButtonsEnabled() {
   return window.__CHATVAULT_SHOW_SAVE_BUTTON__ !== false;
@@ -49,7 +53,7 @@ function ensureTooltip() {
       box-shadow: 0 4px 10px rgba(0, 0, 0, 0.18);
       font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', sans-serif;
       line-height: 1.4;
-    ">${SAVE_TOOLTIP_TEXT}</div>
+    "></div>
   `;
   document.body.appendChild(globalTooltip);
   return globalTooltip;
@@ -57,6 +61,10 @@ function ensureTooltip() {
 
 function showTooltip(button) {
   const tooltip = ensureTooltip();
+  const tooltipBody = tooltip.firstElementChild;
+  if (tooltipBody) {
+    tooltipBody.textContent = button.getAttribute('data-tooltip') || SAVE_TOOLTIP_TEXT;
+  }
   const rect = button.getBoundingClientRect();
   tooltip.style.visibility = 'visible';
   tooltip.style.opacity = '1';
@@ -107,6 +115,87 @@ function createSaveButton() {
       <polyline points="17 21 17 13 7 13 7 21"></polyline>
       <polyline points="7 3 7 8 15 8"></polyline>
     </svg>
+  `;
+
+  const setHoverState = (active) => {
+    if (active) {
+      button.style.backgroundColor = 'rgba(138, 180, 248, 0.16)';
+      button.style.color = '#8ab4f8';
+    } else {
+      button.style.backgroundColor = 'transparent';
+      button.style.color = 'rgba(232, 234, 237, 0.9)';
+    }
+  };
+
+  button.addEventListener('mouseenter', () => {
+    setHoverState(true);
+    button.setAttribute('data-state', 'delayed-open');
+    showTooltip(button);
+  });
+  button.addEventListener('mouseleave', () => {
+    setHoverState(false);
+    button.setAttribute('data-state', 'closed');
+    hideTooltip();
+  });
+  button.addEventListener('focus', () => {
+    setHoverState(true);
+    button.setAttribute('data-state', 'delayed-open');
+    showTooltip(button);
+  });
+  button.addEventListener('blur', () => {
+    setHoverState(false);
+    button.setAttribute('data-state', 'closed');
+    hideTooltip();
+  });
+  button.addEventListener('mousedown', () => {
+    button.style.backgroundColor = 'rgba(138, 180, 248, 0.24)';
+  });
+  button.addEventListener('mouseup', () => {
+    button.style.backgroundColor = 'rgba(138, 180, 248, 0.16)';
+  });
+
+  return button;
+}
+
+function createCodeBlockSaveButton() {
+  const button = document.createElement('button');
+  button.className = 'chatvault-save-btn gemini-chatvault-save-btn gemini-chatvault-code-save-btn mdc-icon-button mat-mdc-icon-button mat-mdc-button-base mat-mdc-tooltip-trigger mat-unthemed';
+  button.setAttribute('type', 'button');
+  button.setAttribute('aria-label', 'コードブロックをObsidianに保存');
+  button.setAttribute('data-tooltip', CODE_SAVE_TOOLTIP_TEXT);
+  button.setAttribute('data-state', 'closed');
+  button.setAttribute('data-test-id', 'chatvault-code-save-button');
+  button.setAttribute('data-chatvault-save-kind', 'code-block');
+  button.setAttribute('mat-icon-button', '');
+  button.setAttribute('mattooltip', CODE_SAVE_TOOLTIP_TEXT);
+
+  button.style.cssText = `
+    background-color: transparent;
+    color: rgba(232, 234, 237, 0.9);
+    border: none;
+    border-radius: 9999px;
+    cursor: pointer;
+    transition: background-color 0.2s ease, color 0.2s ease;
+    width: 40px;
+    height: 40px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    padding: 0;
+    margin: 0;
+    flex: 0 0 auto;
+    line-height: 0;
+  `;
+
+  button.innerHTML = `
+    <span class="mat-mdc-button-persistent-ripple mdc-icon-button__ripple"></span>
+    <svg class="chatvault-code-save-icon" width="20" height="20" viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" style="display:block;width:20px;height:20px;flex:0 0 auto;pointer-events:none;">
+      <path d="M19 21H5a2 2 0 01-2-2V5a2 2 0 012-2h11l5 5v11a2 2 0 01-2 2z"></path>
+      <polyline points="17 21 17 13 7 13 7 21"></polyline>
+      <polyline points="7 3 7 8 15 8"></polyline>
+    </svg>
+    <span class="mat-focus-indicator"></span>
+    <span class="mat-mdc-button-touch-target"></span>
   `;
 
   const setHoverState = (active) => {
@@ -534,12 +623,12 @@ function attachMessageRootToButton(button, root) {
 
 function findExistingSaveButton(root, actionContainer, scope) {
   const responseId = getResponseIdFromMessage(root);
-  const rootButtons = Array.from(root.querySelectorAll?.('.chatvault-save-btn') || []);
+  const rootButtons = Array.from(root.querySelectorAll?.(MESSAGE_SAVE_BUTTON_SELECTOR) || []);
   const actionButtons = actionContainer
-    ? Array.from(actionContainer.querySelectorAll?.('.chatvault-save-btn') || [])
+    ? Array.from(actionContainer.querySelectorAll?.(MESSAGE_SAVE_BUTTON_SELECTOR) || [])
     : [];
   const scopedButtons = scope && responseId
-    ? Array.from(scope.querySelectorAll?.('.chatvault-save-btn') || [])
+    ? Array.from(scope.querySelectorAll?.(MESSAGE_SAVE_BUTTON_SELECTOR) || [])
     : [];
 
   const uniqueCandidates = [...new Set([...rootButtons, ...actionButtons, ...scopedButtons])];
@@ -548,6 +637,83 @@ function findExistingSaveButton(root, actionContainer, scope) {
     || rootButtons[0]
     || actionButtons[0]
     || null;
+}
+
+function createFallbackCodeActionContainer(codeBlockRoot) {
+  const wrapper = document.createElement('div');
+  wrapper.className = 'chatvault-code-actions';
+  wrapper.setAttribute('data-chatvault-ignore', 'true');
+  wrapper.style.cssText = `
+    position: absolute;
+    top: 4px;
+    right: 8px;
+    z-index: 20;
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    pointer-events: auto;
+  `;
+
+  const currentPosition = window.getComputedStyle?.(codeBlockRoot)?.position;
+  if (!currentPosition || currentPosition === 'static') {
+    codeBlockRoot.style.position = 'relative';
+  }
+  codeBlockRoot.appendChild(wrapper);
+  return wrapper;
+}
+
+function getCodeBlockActionContainer(codeBlockRoot) {
+  const existingFallback = codeBlockRoot.querySelector?.('.chatvault-code-actions');
+  const { container, copyButton, native } = findGeminiCodeActionContainer(codeBlockRoot);
+  if (container) {
+    return { container, copyButton, native };
+  }
+  if (existingFallback) {
+    return { container: existingFallback, copyButton: null, native: false };
+  }
+  return { container: createFallbackCodeActionContainer(codeBlockRoot), copyButton: null, native: false };
+}
+
+function insertCodeButtonIntoContainer(container, button, copyButton) {
+  if (copyButton && copyButton.parentElement === container) {
+    container.insertBefore(button, copyButton);
+  } else if (copyButton?.parentElement) {
+    const copyHost = getDirectChild(container, copyButton);
+    container.insertBefore(button, copyHost || copyButton);
+  } else if (button.parentElement !== container) {
+    container.appendChild(button);
+  }
+}
+
+function addCodeBlockSaveButton(codeBlockElement, createBtn = createCodeBlockSaveButton) {
+  try {
+    if (!inlineButtonsEnabled()) {
+      return { added: false, button: null, target: null };
+    }
+
+    const root = resolveGeminiCodeBlockRoot(codeBlockElement);
+    if (!root) {
+      return { added: false, button: null, target: null };
+    }
+
+    const { container, copyButton } = getCodeBlockActionContainer(root);
+    const existingButton = root.querySelector?.(CODE_SAVE_BUTTON_SELECTOR) || null;
+    if (existingButton) {
+      existingButton.__chatvaultCodeBlockElement = root;
+      if (existingButton.parentElement !== container) {
+        insertCodeButtonIntoContainer(container, existingButton, copyButton);
+      }
+      return { added: false, button: existingButton, target: container };
+    }
+
+    const button = typeof createBtn === 'function' ? createBtn() : createCodeBlockSaveButton();
+    button.__chatvaultCodeBlockElement = root;
+    insertCodeButtonIntoContainer(container, button, copyButton);
+
+    return { added: true, button, target: container };
+  } catch (_) {
+    return { added: false, button: null, target: null };
+  }
 }
 
 function insertButtonIntoActionContainer(button, buttonContainer) {
@@ -765,6 +931,13 @@ function findActionContainer(messageRoot) {
   return findActionContainerInElement(messageRoot, messageRoot);
 }
 
+function scanCodeBlocks() {
+  const selectors = getSelectors();
+  document.querySelectorAll(selectors.codeBlock).forEach((codeBlock) => {
+    addCodeBlockSaveButton(codeBlock, () => createCodeBlockSaveButton());
+  });
+}
+
 /**
  * Gemini用の初期化処理
  */
@@ -783,6 +956,7 @@ function initializeGemini(createSaveButton) {
   const existingButtons = document.querySelectorAll('.chatvault-save-btn');
   existingButtons.forEach(btn => btn.remove());
   document.querySelectorAll('.chatvault-inline-actions').forEach(el => el.remove());
+  document.querySelectorAll('.chatvault-code-actions').forEach(el => el.remove());
 
   if (!inlineButtonsEnabled()) {
     return;
@@ -793,6 +967,7 @@ function initializeGemini(createSaveButton) {
     messages.forEach(buttonContainer => {
       addSaveButton(buttonContainer.parentElement, createSaveButton);
     });
+    scanCodeBlocks();
   };
 
   // 既存メッセージの初期スキャン
@@ -890,7 +1065,7 @@ function resolveMessageElementFromButton(btn) {
       }
     }
 
-	  } catch (_) {
+  } catch (_) {
     // ignore
   }
   return null;
@@ -912,6 +1087,7 @@ function initializeGeminiWithNewButtons() {
 
   document.querySelectorAll('.chatvault-save-btn').forEach(btn => btn.remove());
   document.querySelectorAll('.chatvault-inline-actions').forEach(el => el.remove());
+  document.querySelectorAll('.chatvault-code-actions').forEach(el => el.remove());
 
   if (!inlineButtonsEnabled()) {
     return;
@@ -922,6 +1098,7 @@ function initializeGeminiWithNewButtons() {
     document.querySelectorAll(selectors.container).forEach((message) => {
       addSaveButton(message, () => createSaveButton());
     });
+    scanCodeBlocks();
   };
   
   scanMessages();
@@ -959,9 +1136,11 @@ function initializeGeminiWithNewButtons() {
 
 export { 
   createSaveButton, 
+  createCodeBlockSaveButton,
   createChatButtonsContainer,
   createToolbar,
   addSaveButton, 
+  addCodeBlockSaveButton,
   initializeGemini, 
   initializeGeminiWithNewButtons,
   resolveMessageElementFromButton 

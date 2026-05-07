@@ -1,7 +1,7 @@
 import { captureMessages as captureChatGPT, extractCodeBlock as extractChatGPTCodeBlock } from '../contentScripts/js/providers/chatgpt/text.js';
 import { addSaveButton as addChatGPTSaveButton, addCodeBlockSaveButton as addChatGPTCodeBlockSaveButton, createSaveButton as createChatGPTSaveButton, createCodeBlockSaveButton as createChatGPTCodeBlockSaveButton, initializeChatGPT, resolveMessageElementFromButton as resolveChatGPTMessageFromButton } from '../contentScripts/js/providers/chatgpt/ui.js';
-import { captureMessages as captureGemini, extractSingleMessage as extractGeminiSingle } from '../contentScripts/js/providers/gemini/text.js';
-import { addSaveButton as addGeminiSaveButton, createSaveButton as createGeminiSaveButton, resolveMessageElementFromButton as resolveGeminiMessageFromButton } from '../contentScripts/js/providers/gemini/ui.js';
+import { captureMessages as captureGemini, extractCodeBlock as extractGeminiCodeBlock, extractSingleMessage as extractGeminiSingle } from '../contentScripts/js/providers/gemini/text.js';
+import { addSaveButton as addGeminiSaveButton, addCodeBlockSaveButton as addGeminiCodeBlockSaveButton, createSaveButton as createGeminiSaveButton, createCodeBlockSaveButton as createGeminiCodeBlockSaveButton, resolveMessageElementFromButton as resolveGeminiMessageFromButton } from '../contentScripts/js/providers/gemini/ui.js';
 import { captureMessages as captureClaude, extractCodeBlock as extractClaudeCodeBlock } from '../contentScripts/js/providers/claude/text.js';
 import { addSaveButton as addClaudeSaveButton, addCodeBlockSaveButton as addClaudeCodeBlockSaveButton, createSaveButton as createClaudeSaveButton, createCodeBlockSaveButton as createClaudeCodeBlockSaveButton } from '../contentScripts/js/providers/claude/ui.js';
 
@@ -416,6 +416,76 @@ describe('provider capture contract', () => {
     expect(saveButton.nextElementSibling.tagName.toLowerCase()).toBe('copy-button');
     expect(saveButton.getAttribute('data-tooltip')).toBe('Obsidianに保存する');
     expect(resolveGeminiMessageFromButton(saveButton)).toBe(message);
+  });
+
+  test('Gemini code block save button inserts between download and copy controls', () => {
+    document.body.innerHTML = `
+      <div
+        inline-copy-host
+        class="markdown markdown-main-panel stronger"
+        id="model-response-message-contentr_a21f9c2014af47be"
+      >
+        <p>Gemini body</p>
+        <code-block>
+          <div class="code-block">
+            <div class="code-block-decoration header-formatted">
+              <span>Markdown</span>
+              <div class="buttons">
+                <button class="download-button" aria-label="コードをダウンロードする"></button>
+                <button class="copy-button" aria-label="コードをコピー">
+                  <mat-icon fonticon="content_copy"></mat-icon>
+                </button>
+              </div>
+            </div>
+            <pre><code data-test-id="code-content"><span class="hljs-section"># Title</span>
+
+Body</code></pre>
+          </div>
+        </code-block>
+      </div>
+    `;
+
+    const codeBlock = document.querySelector('code-block');
+    const message = document.querySelector('[id^="model-response-message-content"]');
+    const copyButton = document.querySelector('.copy-button');
+    const codeResult = addGeminiCodeBlockSaveButton(codeBlock, createGeminiCodeBlockSaveButton);
+    const messageResult = addGeminiSaveButton(message, createGeminiSaveButton);
+
+    expect(codeResult.added).toBe(true);
+    expect(codeResult.button.dataset.chatvaultSaveKind).toBe('code-block');
+    expect(codeResult.button.__chatvaultCodeBlockElement).toBe(codeBlock);
+    expect(codeResult.button.parentElement).toHaveClass('buttons');
+    expect(codeResult.button.nextElementSibling).toBe(copyButton);
+    expect(messageResult.added).toBe(true);
+    expect(messageResult.button.dataset.chatvaultSaveKind).not.toBe('code-block');
+    expect(document.querySelectorAll('.chatvault-save-btn')).toHaveLength(2);
+  });
+
+  test('Gemini extractCodeBlock preserves highlighted code text and language', () => {
+    document.title = 'Research - Gemini';
+    document.body.innerHTML = `
+      <code-block>
+        <div class="code-block">
+          <div class="code-block-decoration header-formatted">
+            <span>Markdown</span>
+            <div class="buttons">
+              <button class="download-button" aria-label="コードをダウンロードする"></button>
+              <button class="copy-button" aria-label="コードをコピー">Copy</button>
+            </div>
+          </div>
+          <pre><code data-test-id="code-content"><span class="hljs-section"># Obsidian</span>
+
+Use <span class="hljs-code">\`[[links]]\`</span>.</code></pre>
+        </div>
+      </code-block>
+    `;
+
+    const result = extractGeminiCodeBlock(document.querySelector('code-block'));
+
+    expect(result.title).toBe('Research');
+    expect(result.language).toBe('markdown');
+    expect(result.content).toBe('```markdown\n# Obsidian\n\nUse `[[links]]`.\n```');
+    expect(result.content).not.toContain('Copy');
   });
 
   test('Claude save button does not inherit the copy tooltip wrapper', () => {

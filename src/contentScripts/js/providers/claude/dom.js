@@ -1,3 +1,5 @@
+import { safeMatches } from '../shared/dom.js';
+
 const CLAUDE_CODE_BLOCK_GROUP_SELECTOR = '[role="group"]';
 const CLAUDE_LABELED_CODE_BLOCK_GROUP_SELECTOR = 'div[role="group"][aria-label="コード"], div[role="group"][aria-label="Code"]';
 const CLAUDE_CODE_PRE_SELECTOR = 'pre.code-block__code, pre';
@@ -9,14 +11,6 @@ export const CLAUDE_CODE_BLOCK_SELECTOR = [
   'pre.code-block__code',
   'pre > code'
 ].join(', ');
-
-function safeMatches(element, selector) {
-  try {
-    return Boolean(element?.nodeType === Node.ELEMENT_NODE && element.matches?.(selector));
-  } catch (_) {
-    return false;
-  }
-}
 
 function hasCodeContent(element) {
   return Boolean(

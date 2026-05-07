@@ -3,14 +3,58 @@ import {
   GEMINI_CODE_PANEL_SELECTOR,
   getSelectors
 } from './checks.js';
+import {
+  getGeminiCodeContentElement,
+  getGeminiCodeLanguageLabel,
+  normalizeGeminiCodeLanguage
+} from './dom.js';
 import { toMarkdownIfHtml } from './markdown.js';
 import { stripServiceTitle } from '../../../../utils/chat/formatting.js';
 import { cloneWithoutSelectors } from '../shared/dom.js';
+import { buildFencedCode, normalizeCodeText } from '../shared/code.js';
+
+const CODE_PANEL_LANGUAGE_MATCHERS = [
+  { language: 'python', tokens: ['python'] },
+  { language: 'javascript', tokens: ['javascript', 'js'] },
+  { language: 'typescript', tokens: ['typescript', 'ts'] },
+  { language: 'html', tokens: ['html'] },
+  { language: 'css', tokens: ['css'] },
+  { language: 'java', tokens: ['java'] },
+  { language: 'cpp', tokens: ['c++', 'cpp'] },
+  { language: 'csharp', tokens: ['c#'] },
+  { language: 'go', tokens: ['go'] },
+  { language: 'rust', tokens: ['rust'] },
+  { language: 'php', tokens: ['php'] },
+  { language: 'ruby', tokens: ['ruby'] },
+  { language: 'swift', tokens: ['swift'] },
+  { language: 'kotlin', tokens: ['kotlin'] },
+  { language: 'scala', tokens: ['scala'] },
+  { language: 'r', tokens: ['r'] },
+  { language: 'matlab', tokens: ['matlab'] },
+  { language: 'sql', tokens: ['sql'] },
+  { language: 'bash', tokens: ['bash', 'shell'] },
+  { language: 'yaml', tokens: ['yaml', 'yml'] },
+  { language: 'json', tokens: ['json'] },
+  { language: 'xml', tokens: ['xml'] },
+  { language: 'markdown', tokens: ['markdown', 'md'] }
+];
 
 function getContentElement(messageElement) {
   const selectors = getSelectors();
   if (messageElement.matches?.(selectors.content)) return messageElement;
   return messageElement.querySelector?.(selectors.content) || messageElement;
+}
+
+function getTitle() {
+  return stripServiceTitle(document.title, 'gemini');
+}
+
+function detectCodePanelLanguage(title) {
+  const lowerTitle = String(title || '').toLowerCase();
+  const match = CODE_PANEL_LANGUAGE_MATCHERS.find(({ tokens }) =>
+    tokens.some((token) => lowerTitle.includes(token))
+  );
+  return match?.language || '';
 }
 
 function cleanClone(element) {
@@ -59,7 +103,7 @@ function getCaptureElements() {
 export function extractSingleMessage(messageElement) {
   const selectors = getSelectors();
   try {
-    let contentEl = getContentElement(messageElement);
+    const contentEl = getContentElement(messageElement);
     const cloned = cleanClone(contentEl);
     const html = (cloned.innerHTML || '').trim();
     const raw = html || (cloned.textContent || '').trim();
@@ -86,7 +130,7 @@ export function extractSingleMessage(messageElement) {
       }
     }
 
-    const title = stripServiceTitle(document.title, 'gemini');
+    const title = getTitle();
 
     return { role, content, title };
   } catch (_) {
@@ -103,10 +147,25 @@ export function extractSingleMessage(messageElement) {
       }
     }
     
-    const title = stripServiceTitle(document.title, 'gemini');
+    const title = getTitle();
       
     return { role, content: text, title };
   }
+}
+
+export function extractCodeBlock(codeBlockElement) {
+  const contentElement = getGeminiCodeContentElement(codeBlockElement);
+  const codeText = normalizeCodeText(contentElement?.textContent || contentElement?.innerText || '', {
+    trimLineEndWhitespace: false
+  });
+  const language = normalizeGeminiCodeLanguage(getGeminiCodeLanguageLabel(codeBlockElement));
+
+  return {
+    role: 'assistant',
+    content: codeText ? buildFencedCode(codeText, language, { adaptiveFence: false }) : '',
+    title: getTitle(),
+    language
+  };
 }
 
 export function captureMessages(mode, count = null) {
@@ -151,7 +210,7 @@ export function captureMessages(mode, count = null) {
     throw new Error('無効なキャプチャモード: ' + mode);
   }
 
-  const title = stripServiceTitle(document.title, 'gemini');
+  const title = getTitle();
 
   if (!messages.length) {
     return {
@@ -242,55 +301,7 @@ function extractCodeImmersivePanelContent(codeImmersivePanel) {
       }
     }
     
-    // 言語を判定（タイトルから推測）
-    let language = '';
-    if (title.toLowerCase().includes('python')) {
-      language = 'python';
-    } else if (title.toLowerCase().includes('javascript') || title.toLowerCase().includes('js')) {
-      language = 'javascript';
-    } else if (title.toLowerCase().includes('typescript') || title.toLowerCase().includes('ts')) {
-      language = 'typescript';
-    } else if (title.toLowerCase().includes('html')) {
-      language = 'html';
-    } else if (title.toLowerCase().includes('css')) {
-      language = 'css';
-    } else if (title.toLowerCase().includes('java')) {
-      language = 'java';
-    } else if (title.toLowerCase().includes('c++') || title.toLowerCase().includes('cpp')) {
-      language = 'cpp';
-    } else if (title.toLowerCase().includes('c#')) {
-      language = 'csharp';
-    } else if (title.toLowerCase().includes('go')) {
-      language = 'go';
-    } else if (title.toLowerCase().includes('rust')) {
-      language = 'rust';
-    } else if (title.toLowerCase().includes('php')) {
-      language = 'php';
-    } else if (title.toLowerCase().includes('ruby')) {
-      language = 'ruby';
-    } else if (title.toLowerCase().includes('swift')) {
-      language = 'swift';
-    } else if (title.toLowerCase().includes('kotlin')) {
-      language = 'kotlin';
-    } else if (title.toLowerCase().includes('scala')) {
-      language = 'scala';
-    } else if (title.toLowerCase().includes('r')) {
-      language = 'r';
-    } else if (title.toLowerCase().includes('matlab')) {
-      language = 'matlab';
-    } else if (title.toLowerCase().includes('sql')) {
-      language = 'sql';
-    } else if (title.toLowerCase().includes('bash') || title.toLowerCase().includes('shell')) {
-      language = 'bash';
-    } else if (title.toLowerCase().includes('yaml') || title.toLowerCase().includes('yml')) {
-      language = 'yaml';
-    } else if (title.toLowerCase().includes('json')) {
-      language = 'json';
-    } else if (title.toLowerCase().includes('xml')) {
-      language = 'xml';
-    } else if (title.toLowerCase().includes('markdown') || title.toLowerCase().includes('md')) {
-      language = 'markdown';
-    }
+    const language = detectCodePanelLanguage(title);
     
     // コードの前処理（重複除去と整形）
     if (codeContent) {
@@ -304,7 +315,7 @@ function extractCodeImmersivePanelContent(codeImmersivePanel) {
     const formattedCode = `\`\`\`${language}\n${codeContent}\n\`\`\``;
     
     // ページタイトルを取得
-    const pageTitle = stripServiceTitle(document.title, 'gemini');
+    const pageTitle = getTitle();
     
     return {
       role: 'assistant',
@@ -316,7 +327,7 @@ function extractCodeImmersivePanelContent(codeImmersivePanel) {
     
     // フォールバック: 基本的なテキスト抽出
     const fallbackContent = codeImmersivePanel.textContent || '';
-    const pageTitle = stripServiceTitle(document.title, 'gemini');
+    const pageTitle = getTitle();
     
     return {
       role: 'assistant',

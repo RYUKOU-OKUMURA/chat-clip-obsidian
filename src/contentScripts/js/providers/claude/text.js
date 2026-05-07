@@ -4,6 +4,13 @@ import { toMarkdownIfHtml } from '../../../../utils/markdown.js';
 import { createLogger } from '../../../../utils/logger.js';
 import { stripServiceTitle } from '../../../../utils/chat/formatting.js';
 import { getClaudeCodeContentElement, resolveClaudeCodeBlockRoot } from './dom.js';
+import { safeMatches, safeQueryAll } from '../shared/dom.js';
+import {
+  appendTextWithBreaks,
+  buildFencedCode,
+  detectCodeLanguageFromClass,
+  normalizeCodeText
+} from '../shared/code.js';
 
 const log = createLogger('Claude Text DOM');
 
@@ -43,22 +50,6 @@ function getClaudeSelectors() {
     messageContent: `${userMessage}, ${assistantMessage}`,
     candidates: `${RENDER_CONTAINER_SELECTOR}, ${userMessage}, ${assistantMessage}`
   };
-}
-
-function safeMatches(element, selector) {
-  try {
-    return !!(element && element.nodeType === Node.ELEMENT_NODE && element.matches?.(selector));
-  } catch (_) {
-    return false;
-  }
-}
-
-function safeQueryAll(root, selector) {
-  try {
-    return root?.querySelectorAll ? Array.from(root.querySelectorAll(selector)) : [];
-  } catch (_) {
-    return [];
-  }
 }
 
 function elementIsHidden(element) {
@@ -191,52 +182,6 @@ function normalizeContent(content) {
     .trim();
 }
 
-function normalizeCodeText(text) {
-  return String(text || '')
-    .replace(/\u00a0/g, ' ')
-    .replace(/\r\n/g, '\n')
-    .replace(/\r/g, '\n')
-    .replace(/[ \t]+\n/g, '\n')
-    .replace(/\n{3,}$/g, '\n\n')
-    .trim();
-}
-
-function buildFencedCode(text, language = '') {
-  const longestBackticks = Math.max(2, ...Array.from(text.matchAll(/`+/g), (match) => match[0].length));
-  const fence = '`'.repeat(Math.max(3, longestBackticks + 1));
-  return `${fence}${language || ''}\n${text}\n${fence}`;
-}
-
-function appendCodeTextWithBreaks(node, chunks) {
-  if (!node) return;
-  if (node.nodeType === Node.TEXT_NODE) {
-    chunks.push(node.nodeValue || '');
-    return;
-  }
-  if (node.nodeType !== Node.ELEMENT_NODE) return;
-
-  const element = node;
-  if (safeMatches(element, NON_CONTENT_SELECTOR)) {
-    return;
-  }
-  if (element.tagName === 'BR') {
-    chunks.push('\n');
-    return;
-  }
-
-  Array.from(element.childNodes || []).forEach((child) => appendCodeTextWithBreaks(child, chunks));
-}
-
-function getCodeLanguage(codeBlockElement) {
-  const root = resolveClaudeCodeBlockRoot(codeBlockElement) || codeBlockElement;
-  const candidate = root.closest?.('[class*="language-"], [class*="lang-"]')
-    || root.querySelector?.('[class*="language-"], [class*="lang-"]')
-    || root;
-  const className = (candidate?.getAttribute?.('class') || '').toLowerCase();
-  const match = className.match(/(?:language|lang)-([a-z0-9+#-]+)/i);
-  return match ? match[1] : '';
-}
-
 function extractContentFromElement(messageElement) {
   const contentElement = getContentElement(messageElement);
   const visibleClone = cloneVisibleContent(contentElement);
@@ -309,9 +254,11 @@ export function extractSingleMessage(messageElement) {
 export function extractCodeBlock(codeBlockElement) {
   const contentElement = getClaudeCodeContentElement(codeBlockElement);
   const chunks = [];
-  appendCodeTextWithBreaks(contentElement, chunks);
+  appendTextWithBreaks(contentElement, chunks, {
+    skipSelector: NON_CONTENT_SELECTOR
+  });
   const text = normalizeCodeText(chunks.join('') || contentElement?.textContent || '');
-  const language = getCodeLanguage(codeBlockElement);
+  const language = detectCodeLanguageFromClass(resolveClaudeCodeBlockRoot(codeBlockElement) || codeBlockElement);
 
   return {
     role: 'assistant',

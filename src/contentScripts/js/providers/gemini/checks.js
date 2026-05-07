@@ -1,4 +1,6 @@
 // Gemini checks and selectors
+import { GEMINI_CODE_BLOCK_SELECTOR } from './dom.js';
+
 export const GEMINI_MESSAGE_CONTENT_SELECTOR = [
   'message-content',
   '[id^="message-content-id-"]',
@@ -58,6 +60,7 @@ export function getSelectors() {
     responseScope: GEMINI_RESPONSE_SCOPE_SELECTOR,
     actionContainer: GEMINI_ACTION_CONTAINER_SELECTOR,
     copyButton: GEMINI_COPY_BUTTON_SELECTOR,
-    codePanel: GEMINI_CODE_PANEL_SELECTOR
+    codePanel: GEMINI_CODE_PANEL_SELECTOR,
+    codeBlock: GEMINI_CODE_BLOCK_SELECTOR
   };
 }

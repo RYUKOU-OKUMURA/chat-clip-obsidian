@@ -1,6 +1,6 @@
 /* global chrome */
 import "./App.css";
-import React, { useState, useEffect, useRef, Suspense, useMemo } from "react";
+import React, { useState, useEffect, useRef, Suspense, useCallback, useMemo } from "react";
 import { sanitizeTitle } from "../../utils/data/validation.js";
 import { queryActiveTab, getSync } from "../../utils/browser/chrome.js";
 import {
@@ -80,6 +80,17 @@ const ensurePopupDirectoryHandleIfNeeded = async (method) => {
   }
 };
 
+const sendTabMessage = (tabId, payload) => new Promise((resolve, reject) => {
+  chrome.tabs.sendMessage(tabId, payload, (response) => {
+    const lastError = chrome.runtime.lastError;
+    if (lastError) {
+      reject(lastError);
+      return;
+    }
+    resolve(response);
+  });
+});
+
 function App() {
   // Original state
   const [pageInfo, setPageInfo] = useState({ title: "", url: "" });
@@ -87,14 +98,12 @@ function App() {
   const [saveButtonDisabled, setSaveButtonDisabled] = useState(true);
   const [showHamburgerMenu, setShowHamburgerMenu] = useState(false);
 
-  const [errorMsg, setErrorMsg] = useState("");
   const [loading, setLoading] = useState(true);
 
   // New chat-save state
   const [mode, setMode] = useState('single');
   const [isOnChatPage, setIsOnChatPage] = useState(false);
   const [messageCount, setMessageCount] = useState(30);
-  const [markdownContent, setMarkdownContent] = useState('');
   const [showPreview, setShowPreview] = useState(false);
   const [chatPreviewContent, setChatPreviewContent] = useState('');
   const [saveHistory, setSaveHistory] = useState([]);
@@ -106,7 +115,6 @@ function App() {
 
   const containerRef = useRef();
   const menuRef = useRef();
-  const saveButtonRef = useRef(null);
   const hamburgerMenuButtonRef = useRef(null);
 
   const savePathPreview = useMemo(() => {
@@ -139,16 +147,14 @@ function App() {
   }, []);
 
   useEffect(() => {
-    if (errorMsg) {
-      setSaveButtonDisabled(true);
-    } else if (!isOnChatPage) {
+    if (!isOnChatPage) {
       setSaveButtonDisabled(true);
     } else if (mode === 'recent' && !isMessageCountValid) {
       setSaveButtonDisabled(true);
     } else {
       setSaveButtonDisabled(false);
     }
-  }, [title, errorMsg, mode, isOnChatPage, isMessageCountValid]);
+  }, [mode, isOnChatPage, isMessageCountValid]);
 
 
   useEffect(() => {
@@ -247,11 +253,6 @@ function App() {
     loadSettings();
   }, [isOnChatPage]);
 
-  // Generate markdown preview
-  useEffect(() => {
-    // Remove this since we don't have webpage mode anymore
-  }, []);
-
   // Generate chat preview content
   useEffect(() => {
     if (isOnChatPage) {
@@ -293,63 +294,15 @@ function App() {
   }, [darkMode]);
 
   // Toggle dark mode
-  const toggleDarkMode = () => {
-    const newDarkMode = !darkMode;
-    setDarkMode(newDarkMode);
-    chrome.storage.local.set({ darkMode: newDarkMode });
-  };
-
-  // Keyboard shortcuts
-  useEffect(() => {
-    const handleKeyboard = (e) => {
-      // Alt+S: Save
-      if (e.altKey && e.key === 's') {
-        e.preventDefault();
-        if (!saveButtonDisabled) {
-          saveNote();
-        }
-      }
-      // Alt+P: Toggle Preview
-      else if (e.altKey && e.key === 'p') {
-        e.preventDefault();
-        setShowPreview(!showPreview);
-      }
-      // Alt+D: Toggle Dark Mode
-      else if (e.altKey && e.key === 'd') {
-        e.preventDefault();
-        toggleDarkMode();
-      }
-      // Escape: Close popup
-      else if (e.key === 'Escape') {
-        e.preventDefault();
-        window.close();
-      }
-    };
-
-    document.addEventListener('keydown', handleKeyboard);
-    return () => document.removeEventListener('keydown', handleKeyboard);
-  }, [saveButtonDisabled, showPreview, darkMode]);
-
-  if (loading) {
-    return (
-      <div className="h-44 flex items-center justify-center">
-        <div className="my-spinner w-5 h-5 border-t-2 border-zinc-700 border-solid rounded-full"></div>
-      </div>
-    );
-  }
-
-  const sendTabMessage = (tabId, payload) => new Promise((resolve, reject) => {
-    chrome.tabs.sendMessage(tabId, payload, (response) => {
-      const lastError = chrome.runtime.lastError;
-      if (lastError) {
-        reject(lastError);
-        return;
-      }
-      resolve(response);
+  const toggleDarkMode = useCallback(() => {
+    setDarkMode((currentDarkMode) => {
+      const newDarkMode = !currentDarkMode;
+      chrome.storage.local.set({ darkMode: newDarkMode });
+      return newDarkMode;
     });
-  });
+  }, []);
 
-  const saveNote = async () => {
+  const saveNote = useCallback(async () => {
     const actionByMode = {
       single: 'saveActive',
       selection: 'saveSelected',
@@ -419,27 +372,56 @@ function App() {
       toast.show(message, 'error');
       setSaveButtonDisabled(false);
     }
-  };
+  }, [
+    isMessageCountValid,
+    messageCount,
+    mode,
+    pageInfo.url,
+    saveMethod,
+    title
+  ]);
+
+  // Keyboard shortcuts
+  useEffect(() => {
+    const handleKeyboard = (e) => {
+      // Alt+S: Save
+      if (e.altKey && e.key === 's') {
+        e.preventDefault();
+        if (!saveButtonDisabled) {
+          saveNote();
+        }
+      }
+      // Alt+P: Toggle Preview
+      else if (e.altKey && e.key === 'p') {
+        e.preventDefault();
+        setShowPreview((current) => !current);
+      }
+      // Alt+D: Toggle Dark Mode
+      else if (e.altKey && e.key === 'd') {
+        e.preventDefault();
+        toggleDarkMode();
+      }
+      // Escape: Close popup
+      else if (e.key === 'Escape') {
+        e.preventDefault();
+        window.close();
+      }
+    };
+
+    document.addEventListener('keydown', handleKeyboard);
+    return () => document.removeEventListener('keydown', handleKeyboard);
+  }, [saveButtonDisabled, saveNote, toggleDarkMode]);
+
+  if (loading) {
+    return (
+      <div className="h-44 flex items-center justify-center">
+        <div className="my-spinner w-5 h-5 border-t-2 border-zinc-700 border-solid rounded-full"></div>
+      </div>
+    );
+  }
 
   const handleCancel = () => {
     window.close();
-  };
-
-
-  // moved to utils/validation.js
-
-  const handleTitleChange = (e) => {
-    const sanitizedValue = sanitizeTitle(e.target.value);
-    if (sanitizedValue !== e.target.value) {
-      setErrorMsg(
-        'タイトルに無効な文字が含まれています。これらの文字は使用しないでください: \\ : * ? " < > | /'
-      );
-    } else if (sanitizedValue.length > 250) {
-      setErrorMsg("タイトルが長すぎます");
-    } else {
-      setErrorMsg("");
-    }
-    setTitle(e.target.value);
   };
 
   const donateRedirect = () => {
@@ -705,7 +687,6 @@ function App() {
             キャンセル
           </button>
           <button
-            ref={saveButtonRef}
             className={`py-2 px-5 rounded-lg font-medium transition-all relative ${
               saveButtonDisabled
                 ? darkMode 
