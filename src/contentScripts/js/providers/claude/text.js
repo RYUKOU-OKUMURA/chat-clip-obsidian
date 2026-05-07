@@ -3,6 +3,7 @@ import { getSelectors } from './checks.js';
 import { toMarkdownIfHtml } from '../../../../utils/markdown.js';
 import { createLogger } from '../../../../utils/logger.js';
 import { stripServiceTitle } from '../../../../utils/chat/formatting.js';
+import { getClaudeCodeContentElement, resolveClaudeCodeBlockRoot } from './dom.js';
 
 const log = createLogger('Claude Text DOM');
 
@@ -29,8 +30,6 @@ const NON_CONTENT_SELECTOR = [
   'template',
   'noscript'
 ].join(', ');
-
-const CODE_BLOCK_ROOT_SELECTOR = 'div[role="group"][aria-label="コード"], div[role="group"][aria-label="Code"], pre.code-block__code, pre > code';
 
 function getClaudeSelectors() {
   const selectors = getSelectors() || {};
@@ -208,23 +207,6 @@ function buildFencedCode(text, language = '') {
   return `${fence}${language || ''}\n${text}\n${fence}`;
 }
 
-function resolveCodeBlockRoot(element) {
-  const root = element.closest?.('div[role="group"][aria-label="コード"], div[role="group"][aria-label="Code"]')
-    || element.closest?.('pre')
-    || (safeMatches(element, CODE_BLOCK_ROOT_SELECTOR) ? element : null)
-    || element.querySelector?.(CODE_BLOCK_ROOT_SELECTOR);
-
-  if (!root) return null;
-  return root.matches?.('code') ? root.closest('pre') || root : root;
-}
-
-function getCodeContentElement(codeBlockElement) {
-  const root = resolveCodeBlockRoot(codeBlockElement) || codeBlockElement;
-  if (root.matches?.('code')) return root;
-  if (root.matches?.('pre')) return root.querySelector?.('code') || root;
-  return root.querySelector?.('pre.code-block__code code, pre > code, code') || root;
-}
-
 function appendCodeTextWithBreaks(node, chunks) {
   if (!node) return;
   if (node.nodeType === Node.TEXT_NODE) {
@@ -246,7 +228,7 @@ function appendCodeTextWithBreaks(node, chunks) {
 }
 
 function getCodeLanguage(codeBlockElement) {
-  const root = resolveCodeBlockRoot(codeBlockElement) || codeBlockElement;
+  const root = resolveClaudeCodeBlockRoot(codeBlockElement) || codeBlockElement;
   const candidate = root.closest?.('[class*="language-"], [class*="lang-"]')
     || root.querySelector?.('[class*="language-"], [class*="lang-"]')
     || root;
@@ -325,7 +307,7 @@ export function extractSingleMessage(messageElement) {
 }
 
 export function extractCodeBlock(codeBlockElement) {
-  const contentElement = getCodeContentElement(codeBlockElement);
+  const contentElement = getClaudeCodeContentElement(codeBlockElement);
   const chunks = [];
   appendCodeTextWithBreaks(contentElement, chunks);
   const text = normalizeCodeText(chunks.join('') || contentElement?.textContent || '');

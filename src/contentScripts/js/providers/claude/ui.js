@@ -2,6 +2,7 @@
 import { getSelectors } from './checks.js';
 import { createLogger } from '../../../../utils/logger.js';
 import { createFallbackActionContainer, getDirectChild } from '../shared/dom.js';
+import { findClaudeCodeCopyButton, resolveClaudeCodeBlockRoot } from './dom.js';
 
 const log = createLogger('Claude UI');
 
@@ -213,11 +214,14 @@ function addSaveButton(messageElement, createBtn) {
     }
 
     const root = getRootMessageElement(messageElement);
-    if (!root || root.querySelector(MESSAGE_SAVE_BUTTON_SELECTOR)) {
-      return { added: false, button: root?.querySelector(MESSAGE_SAVE_BUTTON_SELECTOR) || null, target: root };
+    const existingButton = root?.querySelector(MESSAGE_SAVE_BUTTON_SELECTOR) || null;
+    if (!root || existingButton) {
+      if (existingButton) existingButton.__chatvaultMessageElement = root;
+      return { added: false, button: existingButton, target: root };
     }
 
     const button = typeof createBtn === 'function' ? createBtn() : createSaveButton();
+    button.__chatvaultMessageElement = root;
     const selectors = getSelectors();
     const copyButton = root.querySelector(selectors.copyButton || '[data-testid="action-bar-copy"]');
     if (copyButton) {
@@ -248,33 +252,6 @@ function addSaveButton(messageElement, createBtn) {
   }
 }
 
-function resolveCodeBlockRoot(element) {
-  const selectors = getSelectors();
-  const root = element.closest?.('div[role="group"][aria-label="コード"], div[role="group"][aria-label="Code"]')
-    || element.closest?.('pre')
-    || (element.matches?.(selectors.codeBlock) ? element : null)
-    || element.querySelector?.(selectors.codeBlock);
-
-  if (!root) return null;
-  if (root.matches?.('div[role="group"][aria-label="コード"], div[role="group"][aria-label="Code"], pre, code')) {
-    return root.matches?.('code') ? root.closest('pre') || root : root;
-  }
-  return root.querySelector?.('div[role="group"][aria-label="コード"], div[role="group"][aria-label="Code"], pre') || null;
-}
-
-function findCodeBlockCopyButton(codeBlockRoot) {
-  const buttons = Array.from(codeBlockRoot.querySelectorAll?.('button, [role="button"]') || []);
-  return buttons.find((button) => {
-    if (button.matches?.('.chatvault-save-btn')) return false;
-    const label = [
-      button.getAttribute?.('aria-label') || '',
-      button.getAttribute?.('title') || '',
-      button.textContent || ''
-    ].join(' ');
-    return /クリップボードにコピー|コピー|copy/i.test(label);
-  }) || null;
-}
-
 function createFallbackCodeActionContainer(codeBlockRoot) {
   const wrapper = document.createElement('div');
   wrapper.className = 'chatvault-code-actions';
@@ -299,7 +276,7 @@ function createFallbackCodeActionContainer(codeBlockRoot) {
 }
 
 function getCodeBlockActionContainer(codeBlockRoot) {
-  const copyButton = findCodeBlockCopyButton(codeBlockRoot);
+  const copyButton = findClaudeCodeCopyButton(codeBlockRoot);
   if (copyButton?.parentElement) {
     return { container: copyButton.parentElement, copyButton, native: true };
   }
@@ -312,13 +289,21 @@ function getCodeBlockActionContainer(codeBlockRoot) {
   return { container: createFallbackCodeActionContainer(codeBlockRoot), copyButton: null, native: false };
 }
 
+function insertBeforeCopyOrAppend(container, button, copyButton) {
+  if (copyButton) {
+    container.insertBefore(button, copyButton);
+  } else {
+    container.appendChild(button);
+  }
+}
+
 function addCodeBlockSaveButton(codeBlockElement, createBtn = createCodeBlockSaveButton) {
   try {
     if (!inlineButtonsEnabled()) {
       return { added: false, button: null, target: null };
     }
 
-    const root = resolveCodeBlockRoot(codeBlockElement);
+    const root = resolveClaudeCodeBlockRoot(codeBlockElement);
     if (!root) {
       return { added: false, button: null, target: null };
     }
@@ -328,22 +313,14 @@ function addCodeBlockSaveButton(codeBlockElement, createBtn = createCodeBlockSav
     if (existingButton) {
       existingButton.__chatvaultCodeBlockElement = root;
       if (existingButton.parentElement !== container) {
-        if (copyButton) {
-          container.insertBefore(existingButton, copyButton);
-        } else {
-          container.appendChild(existingButton);
-        }
+        insertBeforeCopyOrAppend(container, existingButton, copyButton);
       }
       return { added: false, button: existingButton, target: container };
     }
 
     const button = typeof createBtn === 'function' ? createBtn() : createCodeBlockSaveButton();
     button.__chatvaultCodeBlockElement = root;
-    if (copyButton) {
-      container.insertBefore(button, copyButton);
-    } else {
-      container.appendChild(button);
-    }
+    insertBeforeCopyOrAppend(container, button, copyButton);
 
     return { added: true, button, target: container };
   } catch (error) {

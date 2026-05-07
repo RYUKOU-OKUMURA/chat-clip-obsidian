@@ -481,6 +481,27 @@ describe('provider capture contract', () => {
     expect(document.querySelectorAll('.chatvault-save-btn')).toHaveLength(2);
   });
 
+  test('Claude code block save button supports structural code groups without localized aria-label', () => {
+    document.body.innerHTML = `
+      <div role="group" class="relative group/copy">
+        <div class="sticky opacity-0 group-hover/copy:opacity-100">
+          <div class="absolute right-0 h-8 px-2 items-center inline-flex z-10">
+            <button type="button" aria-label="Copy to clipboard"></button>
+          </div>
+        </div>
+        <pre class="code-block__code"><code>const value = 1;</code></pre>
+      </div>
+    `;
+
+    const code = document.querySelector('pre.code-block__code');
+    const copy = document.querySelector('[aria-label="Copy to clipboard"]');
+    const result = addClaudeCodeBlockSaveButton(code, createClaudeCodeBlockSaveButton);
+
+    expect(result.added).toBe(true);
+    expect(result.button.__chatvaultCodeBlockElement).toBe(document.querySelector('[role="group"]'));
+    expect(result.button.nextElementSibling).toBe(copy);
+  });
+
   test('Claude extractCodeBlock wraps native code text in a fenced block', () => {
     document.title = 'Code Notes | Claude';
     document.body.innerHTML = `

@@ -1,5 +1,6 @@
 // Claude checks and selectors - API直接リクエスト型
 // data-test-render-countを持つ要素を検出
+import { CLAUDE_CODE_BLOCK_SELECTOR } from './dom.js';
 
 export function getSelectors() {
   // data-test-render-countを持つメッセージコンテナ
@@ -20,12 +21,7 @@ export function getSelectors() {
 
   // コピーボタン（ボタン配置用）
   const copyButton = '[data-testid="action-bar-copy"]';
-  const codeBlock = [
-    'div[role="group"][aria-label="コード"]',
-    'div[role="group"][aria-label="Code"]',
-    'pre.code-block__code',
-    'pre > code'
-  ].join(', ');
+  const codeBlock = CLAUDE_CODE_BLOCK_SELECTOR;
 
   return { container, userMessage, assistantMessage, content, copyButton, codeBlock };
 }
