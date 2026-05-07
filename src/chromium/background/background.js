@@ -18,15 +18,14 @@ import {
   normalizeMarkdown,
   normalizeSaveMethod
 } from '../../utils/chat/formatting.js';
-import { buildChatSavePath } from '../../utils/chat/savePath.js';
-import { getVaultRootWarning } from '../../utils/chat/vaultRoot.js';
+import { buildChatNoteContent } from '../../utils/chat/noteTemplate.js';
+import { buildChatSavePath, CODE_BLOCK_CONTENT_KIND } from '../../utils/chat/savePath.js';
+import { createInvalidVaultRootError, getVaultRootWarning } from '../../utils/chat/vaultRoot.js';
 import { createLogger } from '../../utils/logger.js';
 
 const log = createLogger('Chat Clip Obsidian Background');
 const SHORT_URI_CONTENT_LIMIT = 6000;
-const DEFAULT_CHAT_NOTE_FORMAT = '# {title}\n\n{content}';
 const SPEAKER_HEADING_ONLY_RE = /^#{1,6}\s+(User|Assistant|Selection)\s*$/gim;
-const CODE_BLOCK_CONTENT_KIND = 'code-block';
 
 function hasSaveableContent(markdown) {
   return Boolean(normalizeMarkdown(markdown || '').replace(SPEAKER_HEADING_ONLY_RE, '').trim());
@@ -38,70 +37,6 @@ function emptyContentResponse() {
     error: 'No content to save',
     errorCode: 'EMPTY_CONTENT'
   };
-}
-
-function renderTemplate(template, values) {
-  return String(template || '')
-    .replace(/\{title\}/g, values.title)
-    .replace(/\{service\}/g, values.service)
-    .replace(/\{url\}/g, values.url)
-    .replace(/\{date\}/g, values.date)
-    .replace(/\{saved\}/g, values.saved)
-    .replace(/\{type\}/g, values.type)
-    .replace(/\{content\}/g, values.content);
-}
-
-function normalizeNoteTemplate(template) {
-  const normalized = String(template || DEFAULT_CHAT_NOTE_FORMAT).replace(/\\n/g, '\n');
-  const trimmed = normalized.trim();
-  if (!trimmed) return DEFAULT_CHAT_NOTE_FORMAT;
-
-  const lower = trimmed.toLowerCase();
-  const hasLegacyMetadata = [
-    'service: {service}',
-    'source: {url}',
-    'saved: {saved}',
-    'mode: {type}',
-    '- **saved**',
-    '- **service**',
-    '- **mode**',
-    '- **url**',
-    '- saved:',
-    '- service:',
-    '- mode:',
-    '- url:'
-  ].some((marker) => lower.includes(marker));
-
-  return hasLegacyMetadata ? DEFAULT_CHAT_NOTE_FORMAT : normalized;
-}
-
-function buildDefaultNote({ title, serviceLabel, sourceUrl, saved, mode, markdown }) {
-  return renderTemplate(DEFAULT_CHAT_NOTE_FORMAT, {
-    title: title || 'Untitled Conversation',
-    service: serviceLabel,
-    url: sourceUrl || '',
-    date: saved.split('T')[0],
-    saved,
-    type: mode,
-    content: markdown
-  });
-}
-
-function buildNoteContent({ settings, title, serviceLabel, sourceUrl, saved, mode, markdown }) {
-  const template = normalizeNoteTemplate(settings.chatNoteFormat);
-  if (!template.includes('{content}')) {
-    return buildDefaultNote({ title, serviceLabel, sourceUrl, saved, mode, markdown });
-  }
-
-  return renderTemplate(template, {
-    title: title || 'Untitled Conversation',
-    service: serviceLabel,
-    url: sourceUrl || '',
-    date: saved.split('T')[0],
-    saved,
-    type: mode,
-    content: markdown
-  });
 }
 
 async function ensureExtensionDirectoryPermission(dirHandle) {
@@ -117,6 +52,10 @@ async function ensureExtensionDirectoryPermission(dirHandle) {
 async function saveViaExtensionFileSystem(content, relativePath) {
   const dirHandle = await loadDirectoryHandle();
   try {
+    const invalidVaultRootError = createInvalidVaultRootError(dirHandle?.name);
+    if (invalidVaultRootError) {
+      throw invalidVaultRootError;
+    }
     await ensureExtensionDirectoryPermission(dirHandle);
     if (!(await isDirectoryHandleUsable(dirHandle))) {
       await removeDirectoryHandle();
@@ -255,7 +194,6 @@ async function prepareMarkdownSave({ markdown, service, title, sourceUrl, mode, 
     'settingsVersion',
     'saveLocationPreset',
     'chatFolderPath',
-    'chatFolderPathExplicit',
     'codeBlockFolderPath',
     'chatNoteFormat',
     'saveMethod',
@@ -287,7 +225,7 @@ async function prepareMarkdownSave({ markdown, service, title, sourceUrl, mode, 
     codeBlockFolderPathExplicit
   } = pathInfo;
   const body = normalizeMarkdown(markdown);
-  const fullContent = buildNoteContent({
+  const fullContent = buildChatNoteContent({
     settings,
     title: noteTitle,
     serviceLabel,
@@ -722,21 +660,7 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
     case 'getSettings':
       (async () => {
         const settings = await getSync([
-          'obsidianVault',
-          'settingsVersion',
-          'saveLocationPreset',
-          'folderPath',
-          'noteContentFormat',
-          'showSaveButton',
-          'chatFolderPath',
-          'chatFolderPathExplicit',
-          'codeBlockFolderPath',
-          'chatNoteFormat',
-          'saveMethod',
-          'downloadsFolder',
-          'selectedFolderPath',
-          'defaultMode',
-          'defaultMessageCount'
+          'showSaveButton'
         ]);
         sendResponse(settings);
       })();

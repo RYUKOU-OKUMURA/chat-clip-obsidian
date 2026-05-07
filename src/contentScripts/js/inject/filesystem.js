@@ -1,5 +1,6 @@
 // File System Access API helpers isolated from inject.js
 import { sanitizeRelativePath } from '../../../utils/data/validation.js';
+import { createInvalidVaultRootError } from '../../../utils/chat/vaultRoot.js';
 import {
   loadDirectoryHandle as loadStoredDirectoryHandle,
   saveDirectoryHandle as saveStoredDirectoryHandle,
@@ -77,7 +78,7 @@ export async function ensureDirectoryHandleIfNeeded(options = {}) {
     }
 
     if (requireForFilesystem && method === 'filesystem') {
-      throw new Error('Vaultフォルダが未選択です。このページで保存ボタンを押してフォルダ選択を許可するか、OptionsでVaultフォルダを選択してください。');
+      throw new Error('直接保存用のVaultルートが未選択です。このページで保存ボタンを押してVaultルートを許可するか、OptionsでVaultルートを許可してください。');
     }
 
     return { success: false, handleReady: false, method };
@@ -99,6 +100,11 @@ export async function handleFileSystemSave(content, relativePath) {
     let dirHandle = await loadDirectoryHandle();
     if (!dirHandle) {
       throw new Error('直接保存用のVaultルートが未設定です。オプション画面でVaultルートを許可してください。');
+    }
+
+    const invalidVaultRootError = createInvalidVaultRootError(dirHandle.name);
+    if (invalidVaultRootError) {
+      throw invalidVaultRootError;
     }
 
     const permission = await dirHandle.queryPermission({ mode: 'readwrite' });

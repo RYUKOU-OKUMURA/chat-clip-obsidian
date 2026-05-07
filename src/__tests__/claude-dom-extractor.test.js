@@ -4,6 +4,7 @@ jest.mock('../contentScripts/js/providers/claude/api.js', () => {
 
 import {
   extractSingleMessage,
+  extractCodeBlock,
   captureMessages
 } from '../contentScripts/js/providers/claude/text.js';
 
@@ -54,6 +55,31 @@ describe('Claude DOM extractor', () => {
     expect(result.content).toContain('Use the DOM first.');
     expect(result.content).toContain('```js');
     expect(result.content).toContain('console.log("ok");');
+  });
+
+  test('extractCodeBlock reads Claude code block content without copy controls', async () => {
+    document.body.innerHTML = `
+      <div role="group" aria-label="コード" class="relative group/copy">
+        <div class="sticky opacity-0 group-hover/copy:opacity-100">
+          <div class="absolute right-0 h-8 px-2 items-center inline-flex z-10">
+            <button aria-label="クリップボードにコピー">Copy</button>
+          </div>
+        </div>
+        <div class="overflow-x-auto">
+          <pre class="code-block__code"><code style="white-space: pre-wrap;"><span><span>- One
+</span></span><span>- Two
+</span><span>- Three</span></code></pre>
+        </div>
+      </div>
+    `;
+
+    const result = await extractCodeBlock(document.querySelector('[role="group"][aria-label="コード"]'));
+
+    expect(result.role).toBe('assistant');
+    expect(result.title).toBe('Research Notes');
+    expect(result.language).toBe('');
+    expect(result.content).toBe('```\n- One\n- Two\n- Three\n```');
+    expect(result.content).not.toContain('Copy');
   });
 
   test('captureMessages returns the shared Claude contract in DOM order', async () => {

@@ -10,6 +10,7 @@ import {
   isDirectoryHandleUsable
 } from "../../utils/browser/fileSystemAccess.js";
 import { normalizeChatMode, normalizeSaveMethod, stripServiceTitle } from "../../utils/chat/formatting.js";
+import { getVaultRootWarning } from "../../utils/chat/vaultRoot.js";
 import { buildChatSavePath, SETTINGS_VERSION } from "../../utils/chat/savePath.js";
 import { toast } from "../../utils/notifications/toast.js";
 import ChatModeSelector from "./components/ChatModeSelector";
@@ -38,13 +39,19 @@ const ensurePopupDirectoryHandleIfNeeded = async (method) => {
 
   const existing = await loadDirectoryHandle().catch(() => null);
   if (existing) {
-    const current = await existing.queryPermission?.({ mode: "readwrite" });
-    if (current === "granted" && await isDirectoryHandleUsable(existing)) return existing;
+    const warning = getVaultRootWarning(existing.name);
+    if (warning) {
+      await removeDirectoryHandle().catch(() => {});
+      chrome.storage.sync.set({ selectedFolderPath: "" });
+    } else {
+      const current = await existing.queryPermission?.({ mode: "readwrite" });
+      if (current === "granted" && await isDirectoryHandleUsable(existing)) return existing;
 
-    const requested = await existing.requestPermission?.({ mode: "readwrite" });
-    if (requested === "granted" && await isDirectoryHandleUsable(existing)) return existing;
+      const requested = await existing.requestPermission?.({ mode: "readwrite" });
+      if (requested === "granted" && await isDirectoryHandleUsable(existing)) return existing;
 
-    await removeDirectoryHandle().catch(() => {});
+      await removeDirectoryHandle().catch(() => {});
+    }
   }
 
   if (typeof window.showDirectoryPicker !== "function") {
@@ -59,6 +66,10 @@ const ensurePopupDirectoryHandleIfNeeded = async (method) => {
       mode: "readwrite",
       startIn: "documents"
     });
+    const warning = getVaultRootWarning(handle.name);
+    if (warning) {
+      throw new Error(`${warning} OptionsでObsidianのVaultルートを選び直してください。`);
+    }
     await saveDirectoryHandle(handle);
     chrome.storage.sync.set({ selectedFolderPath: handle.name });
     return handle;
@@ -76,8 +87,6 @@ function App() {
   const [saveButtonDisabled, setSaveButtonDisabled] = useState(true);
   const [showHamburgerMenu, setShowHamburgerMenu] = useState(false);
 
-  const [obsidianVault, setObsidianVault] = useState(null);
-  const [chatFolderPath, setChatFolderPath] = useState(null);
   const [errorMsg, setErrorMsg] = useState("");
   const [loading, setLoading] = useState(true);
 
@@ -194,27 +203,18 @@ function App() {
       setLoading(true);
       try {
         const result = await getSync([
-          "obsidianVault",
           "settingsVersion",
           "saveLocationPreset",
           "chatFolderPath",
-          "chatFolderPathExplicit",
           "defaultMode",
           "showPreview",
           "defaultMessageCount",
           "saveMethod"
         ]);
-        if (result.obsidianVault) {
-          setObsidianVault(result.obsidianVault);
-        }
-        if (result.chatFolderPath) {
-          setChatFolderPath(result.chatFolderPath);
-        }
         setPathSettings({
           settingsVersion: result.settingsVersion,
           saveLocationPreset: result.saveLocationPreset,
-          chatFolderPath: result.chatFolderPath,
-          chatFolderPathExplicit: result.chatFolderPathExplicit
+          chatFolderPath: result.chatFolderPath
         });
         if (result.defaultMode && isOnChatPage) {
           setMode(normalizeChatMode(result.defaultMode));

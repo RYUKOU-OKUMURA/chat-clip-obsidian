@@ -1,16 +1,19 @@
 import { getSelectors } from './checks.js';
-import { addSaveButton, createSaveButton, resolveMessageElementFromButton, injectObsidianMenuItem, startContentScriptIntegration } from './ui.js';
-import { extractSingleMessage, captureMessages } from './text.js';
+import { addSaveButton, addCodeBlockSaveButton, createSaveButton, createCodeBlockSaveButton, resolveMessageElementFromButton, injectObsidianMenuItem, startContentScriptIntegration } from './ui.js';
+import { extractSingleMessage, extractCodeBlock, captureMessages } from './text.js';
 
 const ClaudeProvider = {
   // Selectors & UI helpers
   getSelectors,
   addSaveButton,
+  addCodeBlockSaveButton,
   createSaveButton,
+  createCodeBlockSaveButton,
   resolveMessageElementFromButton,
   injectObsidianMenuItem,
   // Text extraction interface for generic handler
   extractSingleMessage,
+  extractCodeBlock,
   captureMessages,
   // Content script integration
   startContentScriptIntegration,

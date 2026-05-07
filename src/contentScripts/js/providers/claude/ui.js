@@ -9,6 +9,9 @@ let observer = null;
 let globalTooltip = null;
 let rescanTimer = null;
 const SAVE_TOOLTIP_TEXT = 'Obsidianに保存する';
+const CODE_SAVE_TOOLTIP_TEXT = 'コードブロックをObsidianに保存する';
+const MESSAGE_SAVE_BUTTON_SELECTOR = '.chatvault-save-btn:not([data-chatvault-save-kind="code-block"])';
+const CODE_SAVE_BUTTON_SELECTOR = '.chatvault-save-btn[data-chatvault-save-kind="code-block"]';
 
 function inlineButtonsEnabled() {
   return window.__CHATVAULT_SHOW_SAVE_BUTTON__ !== false;
@@ -45,7 +48,7 @@ function ensureTooltip() {
       box-shadow: 0 4px 10px rgba(0, 0, 0, 0.18);
       font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', sans-serif;
       line-height: 1.4;
-    ">${SAVE_TOOLTIP_TEXT}</div>
+    "></div>
   `;
   document.body.appendChild(globalTooltip);
   return globalTooltip;
@@ -53,6 +56,10 @@ function ensureTooltip() {
 
 function showTooltip(button) {
   const tooltip = ensureTooltip();
+  const tooltipBody = tooltip.firstElementChild;
+  if (tooltipBody) {
+    tooltipBody.textContent = button.getAttribute('data-tooltip') || SAVE_TOOLTIP_TEXT;
+  }
   const rect = button.getBoundingClientRect();
   tooltip.style.visibility = 'visible';
   tooltip.style.opacity = '1';
@@ -122,6 +129,64 @@ function createSaveButton() {
   return button;
 }
 
+function createCodeBlockSaveButton() {
+  const button = document.createElement('button');
+  button.className = 'chatvault-save-btn chatvault-claude-code-save-btn';
+  button.type = 'button';
+  button.setAttribute('aria-label', 'コードブロックをObsidianに保存');
+  button.setAttribute('data-tooltip', CODE_SAVE_TOOLTIP_TEXT);
+  button.setAttribute('data-test-id', 'chatvault-code-save-button');
+  button.setAttribute('data-state', 'closed');
+  button.setAttribute('data-chatvault-save-kind', 'code-block');
+  button.style.cssText = `
+    background-color: transparent;
+    color: rgb(234, 236, 240);
+    border: none;
+    border-radius: 6px;
+    cursor: pointer;
+    transition: background-color 0.2s ease, color 0.2s ease;
+    padding: 0;
+    margin: 0;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 32px;
+    height: 32px;
+    flex: 0 0 auto;
+    line-height: 0;
+  `;
+  button.innerHTML = `
+    <svg class="chatvault-code-save-icon" width="20" height="20" viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" style="display:block;width:20px;height:20px;flex:0 0 auto;pointer-events:none;">
+      <path d="M19 21H5a2 2 0 01-2-2V5a2 2 0 012-2h11l5 5v11a2 2 0 01-2 2z"></path>
+      <polyline points="17 21 17 13 7 13 7 21"></polyline>
+      <polyline points="7 3 7 8 15 8"></polyline>
+    </svg>
+  `;
+
+  button.addEventListener('mouseenter', () => {
+    button.style.backgroundColor = 'rgba(255, 255, 255, 0.12)';
+    button.style.color = 'rgb(255, 255, 255)';
+    button.setAttribute('data-state', 'delayed-open');
+    showTooltip(button);
+  });
+  button.addEventListener('mouseleave', () => {
+    button.style.backgroundColor = 'transparent';
+    button.style.color = 'rgb(234, 236, 240)';
+    button.setAttribute('data-state', 'closed');
+    hideTooltip();
+  });
+  button.addEventListener('focus', () => {
+    button.setAttribute('data-state', 'delayed-open');
+    showTooltip(button);
+  });
+  button.addEventListener('blur', () => {
+    button.setAttribute('data-state', 'closed');
+    hideTooltip();
+  });
+
+  return button;
+}
+
 function getRootMessageElement(messageElement) {
   const selectors = getSelectors();
   return messageElement.closest?.('[data-test-render-count]')
@@ -148,8 +213,8 @@ function addSaveButton(messageElement, createBtn) {
     }
 
     const root = getRootMessageElement(messageElement);
-    if (!root || root.querySelector('.chatvault-save-btn')) {
-      return { added: false, button: root?.querySelector('.chatvault-save-btn') || null, target: root };
+    if (!root || root.querySelector(MESSAGE_SAVE_BUTTON_SELECTOR)) {
+      return { added: false, button: root?.querySelector(MESSAGE_SAVE_BUTTON_SELECTOR) || null, target: root };
     }
 
     const button = typeof createBtn === 'function' ? createBtn() : createSaveButton();
@@ -183,6 +248,110 @@ function addSaveButton(messageElement, createBtn) {
   }
 }
 
+function resolveCodeBlockRoot(element) {
+  const selectors = getSelectors();
+  const root = element.closest?.('div[role="group"][aria-label="コード"], div[role="group"][aria-label="Code"]')
+    || element.closest?.('pre')
+    || (element.matches?.(selectors.codeBlock) ? element : null)
+    || element.querySelector?.(selectors.codeBlock);
+
+  if (!root) return null;
+  if (root.matches?.('div[role="group"][aria-label="コード"], div[role="group"][aria-label="Code"], pre, code')) {
+    return root.matches?.('code') ? root.closest('pre') || root : root;
+  }
+  return root.querySelector?.('div[role="group"][aria-label="コード"], div[role="group"][aria-label="Code"], pre') || null;
+}
+
+function findCodeBlockCopyButton(codeBlockRoot) {
+  const buttons = Array.from(codeBlockRoot.querySelectorAll?.('button, [role="button"]') || []);
+  return buttons.find((button) => {
+    if (button.matches?.('.chatvault-save-btn')) return false;
+    const label = [
+      button.getAttribute?.('aria-label') || '',
+      button.getAttribute?.('title') || '',
+      button.textContent || ''
+    ].join(' ');
+    return /クリップボードにコピー|コピー|copy/i.test(label);
+  }) || null;
+}
+
+function createFallbackCodeActionContainer(codeBlockRoot) {
+  const wrapper = document.createElement('div');
+  wrapper.className = 'chatvault-code-actions';
+  wrapper.setAttribute('data-chatvault-ignore', 'true');
+  wrapper.style.cssText = `
+    position: absolute;
+    top: 8px;
+    right: 8px;
+    z-index: 20;
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    pointer-events: auto;
+  `;
+
+  const currentPosition = window.getComputedStyle?.(codeBlockRoot)?.position;
+  if (!currentPosition || currentPosition === 'static') {
+    codeBlockRoot.style.position = 'relative';
+  }
+  codeBlockRoot.appendChild(wrapper);
+  return wrapper;
+}
+
+function getCodeBlockActionContainer(codeBlockRoot) {
+  const copyButton = findCodeBlockCopyButton(codeBlockRoot);
+  if (copyButton?.parentElement) {
+    return { container: copyButton.parentElement, copyButton, native: true };
+  }
+
+  const existingFallback = codeBlockRoot.querySelector?.('.chatvault-code-actions');
+  if (existingFallback) {
+    return { container: existingFallback, copyButton: null, native: false };
+  }
+
+  return { container: createFallbackCodeActionContainer(codeBlockRoot), copyButton: null, native: false };
+}
+
+function addCodeBlockSaveButton(codeBlockElement, createBtn = createCodeBlockSaveButton) {
+  try {
+    if (!inlineButtonsEnabled()) {
+      return { added: false, button: null, target: null };
+    }
+
+    const root = resolveCodeBlockRoot(codeBlockElement);
+    if (!root) {
+      return { added: false, button: null, target: null };
+    }
+
+    const existingButton = root.querySelector(CODE_SAVE_BUTTON_SELECTOR);
+    const { container, copyButton } = getCodeBlockActionContainer(root);
+    if (existingButton) {
+      existingButton.__chatvaultCodeBlockElement = root;
+      if (existingButton.parentElement !== container) {
+        if (copyButton) {
+          container.insertBefore(existingButton, copyButton);
+        } else {
+          container.appendChild(existingButton);
+        }
+      }
+      return { added: false, button: existingButton, target: container };
+    }
+
+    const button = typeof createBtn === 'function' ? createBtn() : createCodeBlockSaveButton();
+    button.__chatvaultCodeBlockElement = root;
+    if (copyButton) {
+      container.insertBefore(button, copyButton);
+    } else {
+      container.appendChild(button);
+    }
+
+    return { added: true, button, target: container };
+  } catch (error) {
+    log.error('Claude code block save button injection failed:', error);
+    return { added: false, button: null, target: null };
+  }
+}
+
 function resolveMessageElementFromButton(btn) {
   const selectors = getSelectors();
   return btn.closest('[data-test-render-count]')
@@ -198,6 +367,9 @@ function scanMessages() {
   document.querySelectorAll(selectors.container).forEach((message) => {
     addSaveButton(message, () => createSaveButton());
   });
+  document.querySelectorAll(selectors.codeBlock).forEach((codeBlock) => {
+    addCodeBlockSaveButton(codeBlock, () => createCodeBlockSaveButton());
+  });
 }
 
 function startContentScriptIntegration() {
@@ -211,7 +383,7 @@ function startContentScriptIntegration() {
       rescanTimer = null;
     }
 
-    document.querySelectorAll('.chatvault-save-btn, .chatvault-inline-actions').forEach((el) => el.remove());
+    document.querySelectorAll('.chatvault-save-btn, .chatvault-inline-actions, .chatvault-code-actions').forEach((el) => el.remove());
     if (!inlineButtonsEnabled()) {
       return true;
     }
@@ -246,7 +418,9 @@ function injectObsidianMenuItem() {
 
 export {
   createSaveButton,
+  createCodeBlockSaveButton,
   addSaveButton,
+  addCodeBlockSaveButton,
   resolveMessageElementFromButton,
   injectObsidianMenuItem,
   startContentScriptIntegration

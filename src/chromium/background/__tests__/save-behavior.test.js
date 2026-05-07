@@ -1,5 +1,6 @@
 describe('background save behavior', () => {
   let messageListener;
+  let loadDirectoryHandle;
   let writeMarkdownWithDirectoryHandle;
   let downloadsDownload;
   let getSyncMock;
@@ -7,6 +8,7 @@ describe('background save behavior', () => {
   beforeEach(async () => {
     jest.resetModules();
     messageListener = null;
+    loadDirectoryHandle = jest.fn();
     writeMarkdownWithDirectoryHandle = jest.fn();
     downloadsDownload = jest.fn();
     getSyncMock = jest.fn(async () => ({
@@ -65,7 +67,7 @@ describe('background save behavior', () => {
       getSync: getSyncMock
     }));
     jest.doMock('../../../utils/browser/fileSystemAccess.js', () => ({
-      loadDirectoryHandle: jest.fn(),
+      loadDirectoryHandle,
       removeDirectoryHandle: jest.fn(),
       isDirectoryHandleUsable: jest.fn(),
       isMissingDirectoryError: jest.fn(),
@@ -133,6 +135,33 @@ describe('background save behavior', () => {
       messageContent: '### Assistant\n\nhello',
       service: 'chatgpt',
       conversationTitle: 'Root warning'
+    }, { tab: { id: 1, url: 'https://chatgpt.com/c/1' } }, sendResponse);
+
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    expect(sendResponse).toHaveBeenCalledWith(expect.objectContaining({
+      success: false,
+      errorCode: 'INVALID_VAULT_ROOT'
+    }));
+    expect(writeMarkdownWithDirectoryHandle).not.toHaveBeenCalled();
+    expect(downloadsDownload).not.toHaveBeenCalled();
+  });
+
+  test('saveSingleMessage blocks direct filesystem save when the stored handle itself is a destination folder', async () => {
+    getSyncMock.mockResolvedValueOnce({
+      saveMethod: 'filesystem',
+      downloadsFolder: 'ChatVault',
+      selectedFolderPath: 'Obsidian Vault'
+    });
+    loadDirectoryHandle.mockResolvedValueOnce({ name: 'AIchat' });
+    const sendResponse = jest.fn();
+
+    messageListener({
+      action: 'saveSingleMessage',
+      messageType: 'single',
+      messageContent: '### Assistant\n\nhello',
+      service: 'chatgpt',
+      conversationTitle: 'Stored handle warning'
     }, { tab: { id: 1, url: 'https://chatgpt.com/c/1' } }, sendResponse);
 
     await new Promise((resolve) => setTimeout(resolve, 0));

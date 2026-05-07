@@ -2,9 +2,14 @@
 import React, { useMemo, useState, useEffect } from "react";
 import { toast } from "../../utils/notifications/toast.js";
 import { getSync } from "../../utils/browser/chrome.js";
-import { loadDirectoryHandle, saveDirectoryHandle } from "../../utils/browser/fileSystemAccess.js";
+import { loadDirectoryHandle, removeDirectoryHandle, saveDirectoryHandle } from "../../utils/browser/fileSystemAccess.js";
 import { normalizeChatMode, normalizeSaveMethod } from "../../utils/chat/formatting.js";
 import { getVaultRootWarning } from "../../utils/chat/vaultRoot.js";
+import {
+  chatNoteFormatHasContent,
+  DEFAULT_CHAT_NOTE_FORMAT,
+  normalizeChatNoteFormat
+} from "../../utils/chat/noteTemplate.js";
 import { clampRecentCount } from "../popup/components/recentCount.js";
 import {
   buildChatSavePath,
@@ -17,7 +22,6 @@ import {
   SETTINGS_VERSION
 } from "../../utils/chat/savePath.js";
 
-const DEFAULT_CHAT_NOTE_FORMAT = "# {title}\n\n{content}";
 const SAMPLE_TITLE = "Title";
 const SAMPLE_SERVICE = "chatgpt";
 const SAMPLE_CODE_LANGUAGE = "js";
@@ -61,36 +65,10 @@ const CODE_BLOCK_LOCATION_OPTIONS = [
   }
 ];
 
-const normalizeChatNoteFormat = (format) => {
-  const normalized = String(format || DEFAULT_CHAT_NOTE_FORMAT).replace(/\\n/g, "\n");
-  const trimmed = normalized.trim();
-  if (!trimmed) return DEFAULT_CHAT_NOTE_FORMAT;
-
-  const lower = trimmed.toLowerCase();
-  const hasLegacyMetadata = [
-    "service: {service}",
-    "source: {url}",
-    "saved: {saved}",
-    "mode: {type}",
-    "- **saved**",
-    "- **service**",
-    "- **mode**",
-    "- **url**",
-    "- saved:",
-    "- service:",
-    "- mode:",
-    "- url:"
-  ].some((marker) => lower.includes(marker));
-
-  return hasLegacyMetadata ? DEFAULT_CHAT_NOTE_FORMAT : normalized;
-};
-
-const chatNoteFormatHasContent = (format) => /\{content\}/i.test(String(format || ""));
-
 const Section = ({ title, description, children }) => (
   <section className="bg-gray-800 p-6 rounded-lg shadow-lg mb-6">
     <div className="mb-5">
-          <h2 className="text-2xl font-semibold text-purple-300">{title}</h2>
+      <h2 className="text-2xl font-semibold text-purple-300">{title}</h2>
       {description && <p className="text-sm text-gray-400 mt-1">{description}</p>}
     </div>
     {children}
@@ -137,7 +115,6 @@ const DestinationPanel = ({ title, description, children, previewLabel, pathInfo
 
 const OptionsApp = () => {
   const [vault, setVault] = useState("");
-  const [folder, setFolder] = useState("ChatVault");
   const [defaultMode, setDefaultMode] = useState("single");
   const [showSaveButton, setShowSaveButton] = useState(true);
   const [saveLocationPreset, setSaveLocationPreset] = useState(DEFAULT_SAVE_LOCATION_PRESET);
@@ -149,7 +126,7 @@ const OptionsApp = () => {
   const [defaultMessageCount, setDefaultMessageCount] = useState(30);
   const [saveMethod, setSaveMethod] = useState("filesystem");
   const [downloadsFolder, setDownloadsFolder] = useState("ChatVault");
-  const [folderPath, setFolderPath] = useState("");
+  const [vaultRootName, setVaultRootName] = useState("");
   const [vaultRootWarning, setVaultRootWarning] = useState("");
   const [legacySettingsDetected, setLegacySettingsDetected] = useState(false);
   const [showAdvancedSettings, setShowAdvancedSettings] = useState(false);
@@ -158,8 +135,7 @@ const OptionsApp = () => {
     settingsVersion: legacySettingsDetected ? undefined : SETTINGS_VERSION,
     saveLocationPreset,
     chatFolderPath,
-    codeBlockFolderPath,
-    chatFolderPathExplicit: saveLocationPreset === SAVE_LOCATION_PRESETS.CUSTOM && Boolean(chatFolderPath)
+    codeBlockFolderPath
   }), [chatFolderPath, codeBlockFolderPath, legacySettingsDetected, saveLocationPreset]);
 
   const previewPath = useMemo(() => buildChatSavePath({
@@ -186,7 +162,7 @@ const OptionsApp = () => {
   const diagnostics = useMemo(() => JSON.stringify({
     settingsVersion: SETTINGS_VERSION,
     obsidianVault: vault || "(未設定)",
-    selectedFolderPath: folderPath || "(未選択)",
+    directSaveVaultRootName: vaultRootName || "(未許可)",
     saveLocationPreset,
     saveLocationLabel: getSaveLocationPresetLabel(saveLocationPreset),
     chatFolderPath: saveLocationPreset === SAVE_LOCATION_PRESETS.CUSTOM ? chatFolderPath : "",
@@ -200,27 +176,24 @@ const OptionsApp = () => {
     chatFolderPath,
     codeBlockFolderPath,
     downloadsFolder,
-    folderPath,
     legacySettingsDetected,
     previewCodeBlockPath.fullFilePath,
     previewPath.fullFilePath,
     saveLocationPreset,
     saveMethod,
-    vault
+    vault,
+    vaultRootName
   ]);
 
   useEffect(() => {
     console.info('[Chat Clip Obsidian Options] Loading settings from storage...');
     getSync([
       "obsidianVault",
-      "folderPath",
       "settingsVersion",
       "saveLocationPreset",
-      "showChatSettings",
       "defaultMode",
       "showSaveButton",
       "chatFolderPath",
-      "chatFolderPathExplicit",
       "codeBlockFolderPath",
       "chatNoteFormat",
       "showPreview",
@@ -233,7 +206,6 @@ const OptionsApp = () => {
       const location = resolveSaveLocationSettings(result);
 
       setVault(result.obsidianVault || "");
-      setFolder(result.folderPath || "ChatVault");
       setSaveLocationPreset(location.preset);
       setChatFolderPath(location.preset === SAVE_LOCATION_PRESETS.CUSTOM
         ? location.folderTemplate
@@ -251,7 +223,7 @@ const OptionsApp = () => {
       if (result.saveMethod) setSaveMethod(normalizeSaveMethod(result.saveMethod));
       if (result.downloadsFolder) setDownloadsFolder(result.downloadsFolder);
       if (result.selectedFolderPath) {
-        setFolderPath(result.selectedFolderPath);
+        setVaultRootName(result.selectedFolderPath);
         setVaultRootWarning(getVaultRootWarning(result.selectedFolderPath));
       }
     });
@@ -269,16 +241,34 @@ const OptionsApp = () => {
         startIn: 'documents'
       });
 
-      setFolderPath(dirHandle.name);
       const warning = getVaultRootWarning(dirHandle.name);
-      setVaultRootWarning(warning);
+      if (warning) {
+        toast.show(`${warning} 選択は保存しませんでした。`, 'warning');
+        return;
+      }
+
+      setVaultRootName(dirHandle.name);
+      setVaultRootWarning("");
       chrome.storage.sync.set({ selectedFolderPath: dirHandle.name });
       await saveDirectoryHandle(dirHandle);
-      toast.show(warning || `直接保存用のVaultルートを許可しました: ${dirHandle.name}`, warning ? 'warning' : 'success');
+      toast.show(`直接保存用のVaultルートを許可しました: ${dirHandle.name}`, 'success');
     } catch (err) {
       if (err.name === 'AbortError') return;
       console.error('[Chat Clip Obsidian Options] Error selecting folder:', err);
       toast.show('フォルダ選択エラー: ' + err.message, 'error');
+    }
+  };
+
+  const handleResetVaultRootPermission = async () => {
+    try {
+      await removeDirectoryHandle();
+      setVaultRootName("");
+      setVaultRootWarning("");
+      chrome.storage.sync.set({ selectedFolderPath: "" });
+      toast.show('直接保存用のVaultルート許可をリセットしました。', 'success');
+    } catch (error) {
+      console.error('[Chat Clip Obsidian Options] Error resetting vault root permission:', error);
+      toast.show('Vaultルート許可のリセットに失敗しました: ' + (error?.message || error), 'error');
     }
   };
 
@@ -415,20 +405,17 @@ const OptionsApp = () => {
       {
         settingsVersion: SETTINGS_VERSION,
         obsidianVault: vault.trim(),
-        folderPath: folder.trim() || "ChatVault",
-        showChatSettings: true,
         defaultMode: normalizeChatMode(defaultMode),
         showSaveButton,
         saveLocationPreset: normalizedPreset,
         chatFolderPath: normalizedChatFolderPath,
-        chatFolderPathExplicit: normalizedPreset === SAVE_LOCATION_PRESETS.CUSTOM && Boolean(normalizedChatFolderPath),
         codeBlockFolderPath: normalizedCodeBlockFolderPath,
         chatNoteFormat: normalizedChatNoteFormat,
         showPreview,
         defaultMessageCount: normalizedMessageCount,
         saveMethod: normalizedSaveMethod,
         downloadsFolder: downloadsFolder.trim() || "ChatVault",
-        selectedFolderPath: folderPath
+        selectedFolderPath: vaultRootName
       },
       () => {
         if (chrome.runtime.lastError) {
@@ -497,15 +484,25 @@ const OptionsApp = () => {
               <FieldLabel help="ChromeにVaultへの書き込み権限を与えます。Obsidianで開いているVaultの一番上のフォルダを選んでください。">
                 直接保存用のVaultルート
               </FieldLabel>
-              <button
-                type="button"
-                onClick={handleSelectFolder}
-                className="bg-blue-600 hover:bg-blue-700 text-white font-bold py-3 px-4 rounded-lg transition-colors duration-200"
-              >
-                {folderPath ? `${folderPath} (変更)` : 'Vaultルートを許可'}
-              </button>
+              <div className="flex flex-wrap gap-2">
+                <button
+                  type="button"
+                  onClick={handleSelectFolder}
+                  className="bg-blue-600 hover:bg-blue-700 text-white font-bold py-3 px-4 rounded-lg transition-colors duration-200"
+                >
+                  {vaultRootName ? `${vaultRootName} (変更)` : 'Vaultルートを許可'}
+                </button>
+                <button
+                  type="button"
+                  onClick={handleResetVaultRootPermission}
+                  disabled={!vaultRootName}
+                  className="bg-gray-700 hover:bg-gray-600 disabled:cursor-not-allowed disabled:opacity-50 text-white font-semibold py-3 px-4 rounded-lg transition-colors duration-200"
+                >
+                  許可をリセット
+                </button>
+              </div>
               <p className="text-sm text-gray-400 mt-2">
-                現在の許可ルート: {folderPath || '未許可'}
+                現在の許可ルート: {vaultRootName || '未許可'}
               </p>
               {vaultRootWarning && (
                 <p className="mt-2 rounded-lg border border-amber-500/50 bg-amber-950/30 px-3 py-2 text-sm text-amber-100">
@@ -526,7 +523,7 @@ const OptionsApp = () => {
               description="ポップアップの会話全体保存と通常のチャット保存で使うVault内フォルダです。"
               previewLabel="チャット保存先プレビュー"
               pathInfo={previewPath}
-              rootLabel={folderPath}
+              rootLabel={vaultRootName}
             >
               <div className="grid grid-cols-1 gap-3">
                 {SAVE_LOCATION_OPTIONS.map((option) => (
@@ -595,7 +592,7 @@ const OptionsApp = () => {
               description="コードブロック内に表示される保存ボタンから単体保存した時だけ使います。"
               previewLabel="コードブロック保存先プレビュー"
               pathInfo={previewCodeBlockPath}
-              rootLabel={folderPath}
+              rootLabel={vaultRootName}
             >
               <div className="grid grid-cols-1 gap-3">
                 {CODE_BLOCK_LOCATION_OPTIONS.map((option) => (
@@ -757,20 +754,6 @@ const OptionsApp = () => {
                     placeholder="ChatVault"
                   />
                 </div>
-              </div>
-
-              <div>
-                <FieldLabel htmlFor="folder" help="既存Web Clipper互換の設定です。チャット保存先とは別です。">
-                  Webクリップ用フォルダ名
-                </FieldLabel>
-                <input
-                  type="text"
-                  id="folder"
-                  className="w-full p-3 bg-gray-700 rounded-lg border border-gray-600 focus:outline-none focus:ring-2 focus:ring-purple-400"
-                  value={folder}
-                  onChange={(e) => setFolder(e.target.value)}
-                  placeholder="ChatVault"
-                />
               </div>
 
               <div>

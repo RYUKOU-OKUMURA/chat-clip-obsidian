@@ -11,7 +11,7 @@ export function toUserMessage(code, detail) {
   switch (code) {
     case ErrorCodes.NoServiceDetected:
       // Keep message simple and consistent for both scripts
-      return '対応サイトではありません（ChatGPTで使用してください）';
+      return '対応サイトではありません（ChatGPT、Claude、Geminiで使用してください）';
     case ErrorCodes.MissingVaultHandle:
       return '直接保存用のVaultルートが未設定です。オプションからVaultルートを許可してください。';
     case ErrorCodes.ClipboardFailed:

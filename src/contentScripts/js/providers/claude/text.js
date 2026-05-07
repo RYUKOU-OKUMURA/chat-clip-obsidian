@@ -13,6 +13,7 @@ const FALLBACK_ASSISTANT_SELECTOR = '.font-claude-response';
 
 const NON_CONTENT_SELECTOR = [
   '.chatvault-save-btn',
+  '.chatvault-code-actions',
   '[data-chatvault-ignore]',
   '[data-radix-tooltip-content]',
   '[data-radix-popper-content-wrapper]',
@@ -28,6 +29,8 @@ const NON_CONTENT_SELECTOR = [
   'template',
   'noscript'
 ].join(', ');
+
+const CODE_BLOCK_ROOT_SELECTOR = 'div[role="group"][aria-label="コード"], div[role="group"][aria-label="Code"], pre.code-block__code, pre > code';
 
 function getClaudeSelectors() {
   const selectors = getSelectors() || {};
@@ -189,6 +192,69 @@ function normalizeContent(content) {
     .trim();
 }
 
+function normalizeCodeText(text) {
+  return String(text || '')
+    .replace(/\u00a0/g, ' ')
+    .replace(/\r\n/g, '\n')
+    .replace(/\r/g, '\n')
+    .replace(/[ \t]+\n/g, '\n')
+    .replace(/\n{3,}$/g, '\n\n')
+    .trim();
+}
+
+function buildFencedCode(text, language = '') {
+  const longestBackticks = Math.max(2, ...Array.from(text.matchAll(/`+/g), (match) => match[0].length));
+  const fence = '`'.repeat(Math.max(3, longestBackticks + 1));
+  return `${fence}${language || ''}\n${text}\n${fence}`;
+}
+
+function resolveCodeBlockRoot(element) {
+  const root = element.closest?.('div[role="group"][aria-label="コード"], div[role="group"][aria-label="Code"]')
+    || element.closest?.('pre')
+    || (safeMatches(element, CODE_BLOCK_ROOT_SELECTOR) ? element : null)
+    || element.querySelector?.(CODE_BLOCK_ROOT_SELECTOR);
+
+  if (!root) return null;
+  return root.matches?.('code') ? root.closest('pre') || root : root;
+}
+
+function getCodeContentElement(codeBlockElement) {
+  const root = resolveCodeBlockRoot(codeBlockElement) || codeBlockElement;
+  if (root.matches?.('code')) return root;
+  if (root.matches?.('pre')) return root.querySelector?.('code') || root;
+  return root.querySelector?.('pre.code-block__code code, pre > code, code') || root;
+}
+
+function appendCodeTextWithBreaks(node, chunks) {
+  if (!node) return;
+  if (node.nodeType === Node.TEXT_NODE) {
+    chunks.push(node.nodeValue || '');
+    return;
+  }
+  if (node.nodeType !== Node.ELEMENT_NODE) return;
+
+  const element = node;
+  if (safeMatches(element, NON_CONTENT_SELECTOR)) {
+    return;
+  }
+  if (element.tagName === 'BR') {
+    chunks.push('\n');
+    return;
+  }
+
+  Array.from(element.childNodes || []).forEach((child) => appendCodeTextWithBreaks(child, chunks));
+}
+
+function getCodeLanguage(codeBlockElement) {
+  const root = resolveCodeBlockRoot(codeBlockElement) || codeBlockElement;
+  const candidate = root.closest?.('[class*="language-"], [class*="lang-"]')
+    || root.querySelector?.('[class*="language-"], [class*="lang-"]')
+    || root;
+  const className = (candidate?.getAttribute?.('class') || '').toLowerCase();
+  const match = className.match(/(?:language|lang)-([a-z0-9+#-]+)/i);
+  return match ? match[1] : '';
+}
+
 function extractContentFromElement(messageElement) {
   const contentElement = getContentElement(messageElement);
   const visibleClone = cloneVisibleContent(contentElement);
@@ -256,6 +322,21 @@ export function extractSingleMessage(messageElement) {
 
     return { role, content: text, title };
   }
+}
+
+export function extractCodeBlock(codeBlockElement) {
+  const contentElement = getCodeContentElement(codeBlockElement);
+  const chunks = [];
+  appendCodeTextWithBreaks(contentElement, chunks);
+  const text = normalizeCodeText(chunks.join('') || contentElement?.textContent || '');
+  const language = getCodeLanguage(codeBlockElement);
+
+  return {
+    role: 'assistant',
+    content: text ? buildFencedCode(text, language) : '',
+    title: getTitle(),
+    language
+  };
 }
 
 export function captureMessages(mode = 'all', count = null) {

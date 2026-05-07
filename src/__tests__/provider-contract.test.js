@@ -2,8 +2,8 @@ import { captureMessages as captureChatGPT, extractCodeBlock as extractChatGPTCo
 import { addSaveButton as addChatGPTSaveButton, addCodeBlockSaveButton as addChatGPTCodeBlockSaveButton, createSaveButton as createChatGPTSaveButton, createCodeBlockSaveButton as createChatGPTCodeBlockSaveButton, initializeChatGPT, resolveMessageElementFromButton as resolveChatGPTMessageFromButton } from '../contentScripts/js/providers/chatgpt/ui.js';
 import { captureMessages as captureGemini, extractSingleMessage as extractGeminiSingle } from '../contentScripts/js/providers/gemini/text.js';
 import { addSaveButton as addGeminiSaveButton, createSaveButton as createGeminiSaveButton, resolveMessageElementFromButton as resolveGeminiMessageFromButton } from '../contentScripts/js/providers/gemini/ui.js';
-import { captureMessages as captureClaude } from '../contentScripts/js/providers/claude/text.js';
-import { addSaveButton as addClaudeSaveButton, createSaveButton as createClaudeSaveButton } from '../contentScripts/js/providers/claude/ui.js';
+import { captureMessages as captureClaude, extractCodeBlock as extractClaudeCodeBlock } from '../contentScripts/js/providers/claude/text.js';
+import { addSaveButton as addClaudeSaveButton, addCodeBlockSaveButton as addClaudeCodeBlockSaveButton, createSaveButton as createClaudeSaveButton, createCodeBlockSaveButton as createClaudeCodeBlockSaveButton } from '../contentScripts/js/providers/claude/ui.js';
 
 describe('provider capture contract', () => {
   afterEach(() => {
@@ -440,6 +440,68 @@ describe('provider capture contract', () => {
     expect(result.button.nextElementSibling).toBe(copyHost);
     expect(result.button.getAttribute('aria-label')).toBe('Obsidianに保存');
     expect(result.button.getAttribute('data-tooltip')).toBe('Obsidianに保存する');
+  });
+
+  test('Claude code block save button inserts next to native code copy button', () => {
+    document.body.innerHTML = `
+      <div data-test-render-count>
+        <div class="font-claude-response">
+          <div role="group" aria-label="コード" tabindex="0" class="relative group/copy">
+            <div class="sticky opacity-0 group-hover/copy:opacity-100 group-focus-within/copy:opacity-100 top-2 py-2 h-12 w-0 float-right">
+              <div class="absolute right-0 h-8 px-2 items-center inline-flex z-10">
+                <button type="button" aria-label="クリップボードにコピー"></button>
+              </div>
+            </div>
+            <div class="overflow-x-auto">
+              <pre class="code-block__code"><code><span>console.log("ok");</span></code></pre>
+            </div>
+          </div>
+        </div>
+        <div role="toolbar">
+          <button data-testid="action-bar-copy" aria-label="コピー"></button>
+        </div>
+      </div>
+    `;
+
+    const root = document.querySelector('[data-test-render-count]');
+    const codeBlock = document.querySelector('[role="group"][aria-label="コード"]');
+    const codeCopy = codeBlock.querySelector('[aria-label="クリップボードにコピー"]');
+    const actionContainer = codeCopy.parentElement;
+
+    const codeResult = addClaudeCodeBlockSaveButton(codeBlock, createClaudeCodeBlockSaveButton);
+    const messageResult = addClaudeSaveButton(root, createClaudeSaveButton);
+
+    expect(codeResult.added).toBe(true);
+    expect(codeResult.button.dataset.chatvaultSaveKind).toBe('code-block');
+    expect(codeResult.button.__chatvaultCodeBlockElement).toBe(codeBlock);
+    expect(codeResult.button.parentElement).toBe(actionContainer);
+    expect(codeResult.button.nextElementSibling).toBe(codeCopy);
+    expect(messageResult.added).toBe(true);
+    expect(messageResult.button.dataset.chatvaultSaveKind).not.toBe('code-block');
+    expect(document.querySelectorAll('.chatvault-save-btn')).toHaveLength(2);
+  });
+
+  test('Claude extractCodeBlock wraps native code text in a fenced block', () => {
+    document.title = 'Code Notes | Claude';
+    document.body.innerHTML = `
+      <div role="group" aria-label="コード" class="relative group/copy">
+        <div class="sticky opacity-0 group-hover/copy:opacity-100">
+          <div class="absolute right-0 h-8 px-2 items-center inline-flex z-10">
+            <button type="button" aria-label="クリップボードにコピー">Copy</button>
+          </div>
+        </div>
+        <div class="overflow-x-auto">
+          <pre class="code-block__code"><code style="white-space: pre-wrap;"><span><span>line one
+</span></span><span>line two</span></code></pre>
+        </div>
+      </div>
+    `;
+
+    const result = extractClaudeCodeBlock(document.querySelector('[role="group"][aria-label="コード"]'));
+
+    expect(result.title).toBe('Code Notes');
+    expect(result.content).toBe('```\nline one\nline two\n```');
+    expect(result.content).not.toContain('Copy');
   });
 
   test('Claude captureMessages fails with EMPTY_CONTENT when no messages are extracted', () => {

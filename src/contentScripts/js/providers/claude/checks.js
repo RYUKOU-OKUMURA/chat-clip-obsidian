@@ -20,6 +20,12 @@ export function getSelectors() {
 
   // コピーボタン（ボタン配置用）
   const copyButton = '[data-testid="action-bar-copy"]';
+  const codeBlock = [
+    'div[role="group"][aria-label="コード"]',
+    'div[role="group"][aria-label="Code"]',
+    'pre.code-block__code',
+    'pre > code'
+  ].join(', ');
 
-  return { container, userMessage, assistantMessage, content, copyButton };
+  return { container, userMessage, assistantMessage, content, copyButton, codeBlock };
 }

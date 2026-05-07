@@ -3,7 +3,7 @@ import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import OptionsApp from '../OptionsApp';
 import { toast } from '../../../utils/notifications/toast';
-import { loadDirectoryHandle } from '../../../utils/browser/fileSystemAccess';
+import { loadDirectoryHandle, removeDirectoryHandle, saveDirectoryHandle } from '../../../utils/browser/fileSystemAccess';
 
 jest.mock('../../../utils/notifications/toast', () => ({
   toast: {
@@ -13,6 +13,7 @@ jest.mock('../../../utils/notifications/toast', () => ({
 
 jest.mock('../../../utils/browser/fileSystemAccess', () => ({
   loadDirectoryHandle: jest.fn(),
+  removeDirectoryHandle: jest.fn(),
   saveDirectoryHandle: jest.fn()
 }));
 
@@ -31,6 +32,8 @@ describe('OptionsApp settings UX', () => {
     });
     chrome.runtime.sendMessage.mockImplementation(() => {});
     loadDirectoryHandle.mockResolvedValue(null);
+    removeDirectoryHandle.mockResolvedValue(undefined);
+    saveDirectoryHandle.mockResolvedValue(undefined);
     delete window.showDirectoryPicker;
   });
 
@@ -161,5 +164,43 @@ describe('OptionsApp settings UX', () => {
       'error'
     );
     expect(chrome.storage.sync.set).not.toHaveBeenCalled();
+  });
+
+  test('does not store a newly selected root when it looks like a destination folder', async () => {
+    const user = userEvent.setup();
+    mockStorageGet({
+      saveMethod: 'filesystem'
+    });
+    window.showDirectoryPicker = jest.fn(async () => ({ name: 'AIchat' }));
+
+    render(<OptionsApp />);
+
+    await user.click(await screen.findByRole('button', { name: 'Vaultルートを許可' }));
+
+    expect(saveDirectoryHandle).not.toHaveBeenCalled();
+    expect(chrome.storage.sync.set).not.toHaveBeenCalled();
+    expect(toast.show).toHaveBeenCalledWith(
+      expect.stringContaining('選択は保存しませんでした'),
+      'warning'
+    );
+  });
+
+  test('resets the stored direct save root permission', async () => {
+    const user = userEvent.setup();
+    mockStorageGet({
+      saveMethod: 'filesystem',
+      selectedFolderPath: 'Obsidian Vault'
+    });
+
+    render(<OptionsApp />);
+
+    await user.click(await screen.findByRole('button', { name: '許可をリセット' }));
+
+    expect(removeDirectoryHandle).toHaveBeenCalled();
+    expect(chrome.storage.sync.set).toHaveBeenCalledWith({ selectedFolderPath: '' });
+    expect(toast.show).toHaveBeenCalledWith(
+      '直接保存用のVaultルート許可をリセットしました。',
+      'success'
+    );
   });
 });
