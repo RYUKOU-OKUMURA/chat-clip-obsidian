@@ -3,6 +3,7 @@ describe('background save behavior', () => {
   let loadDirectoryHandle;
   let writeMarkdownWithDirectoryHandle;
   let downloadsDownload;
+  let downloadsChangedListener;
   let getSyncMock;
 
   beforeEach(async () => {
@@ -11,6 +12,7 @@ describe('background save behavior', () => {
     loadDirectoryHandle = jest.fn();
     writeMarkdownWithDirectoryHandle = jest.fn();
     downloadsDownload = jest.fn();
+    downloadsChangedListener = null;
     getSyncMock = jest.fn(async () => ({
       saveMethod: 'downloads',
       downloadsFolder: 'ChatVault'
@@ -52,7 +54,9 @@ describe('background save behavior', () => {
       downloads: {
         download: downloadsDownload,
         onChanged: {
-          addListener: jest.fn(),
+          addListener: jest.fn((listener) => {
+            downloadsChangedListener = listener;
+          }),
           removeListener: jest.fn()
         }
       },
@@ -172,5 +176,42 @@ describe('background save behavior', () => {
     }));
     expect(writeMarkdownWithDirectoryHandle).not.toHaveBeenCalled();
     expect(downloadsDownload).not.toHaveBeenCalled();
+  });
+
+  test('saveSingleMessage sends title-date filename and frontmatter content to downloads fallback', async () => {
+    downloadsDownload.mockImplementation((_options, callback) => {
+      callback(7);
+      setTimeout(() => {
+        downloadsChangedListener?.({ id: 7, state: { current: 'complete' } });
+      }, 0);
+    });
+    const sendResponse = jest.fn();
+
+    messageListener({
+      action: 'saveSingleMessage',
+      messageType: 'single',
+      messageContent: '### Assistant\n\nhello',
+      service: 'chatgpt',
+      conversationTitle: 'Save spec'
+    }, { tab: { id: 1, url: 'https://chatgpt.com/c/1' } }, sendResponse);
+
+    await new Promise((resolve) => setTimeout(resolve, 10));
+
+    const [downloadOptions] = downloadsDownload.mock.calls[0];
+    expect(downloadOptions.filename).toMatch(/^ChatVault\/Save_spec_\d{4}-\d{2}-\d{2}\.md$/);
+
+    const encodedContent = downloadOptions.url.split(',')[1];
+    const decodedContent = Buffer.from(encodedContent, 'base64').toString('utf8');
+    expect(decodedContent).toContain('title: "Save spec"');
+    expect(decodedContent).toContain('service: "ChatGPT"');
+    expect(decodedContent).toContain('source: "https://chatgpt.com/c/1"');
+    expect(decodedContent).toContain('type: "single"');
+    expect(decodedContent).toContain('# Save spec');
+    expect(decodedContent).toContain('### Assistant\n\nhello');
+    expect(sendResponse).toHaveBeenCalledWith(expect.objectContaining({
+      success: true,
+      method: 'downloads',
+      filename: expect.stringMatching(/^Save_spec_\d{4}-\d{2}-\d{2}\.md$/)
+    }));
   });
 });

@@ -12,6 +12,7 @@ import {
 import { normalizeChatMode, normalizeSaveMethod, stripServiceTitle } from "../../utils/chat/formatting.js";
 import { getVaultRootWarning } from "../../utils/chat/vaultRoot.js";
 import { buildChatSavePath, SETTINGS_VERSION } from "../../utils/chat/savePath.js";
+import { buildChatNoteContent } from "../../utils/chat/noteTemplate.js";
 import { toast } from "../../utils/notifications/toast.js";
 import ChatModeSelector from "./components/ChatModeSelector";
 import { clampRecentCount } from "./components/recentCount";
@@ -257,22 +258,28 @@ function App() {
   useEffect(() => {
     if (isOnChatPage) {
       const service = getChatServiceName(pageInfo.url);
-      const date = new Date().toISOString().split('T')[0];
-      const chatTitle = title || `${service} Chat - ${date}`;
+      const saved = new Date().toISOString();
+      const chatTitle = title || `${service} Chat`;
 
-      let preview = `# ${chatTitle}\n\n`;
-
+      let body = '';
       if (mode === 'single') {
-        preview += '### Latest Message\n\nLatest message will be saved here.';
+        body = '### Latest Message\n\nLatest message will be saved here.';
       } else if (mode === 'selection') {
-        preview += '### Selected Text\n\nSelected text will be saved here.';
+        body = '### Selected Text\n\nSelected text will be saved here.';
       } else if (mode === 'recent') {
-        preview += `### Recent Messages\n\nLast ${messageCount} messages will be saved here.`;
+        body = `### Recent Messages\n\nLast ${messageCount} messages will be saved here.`;
       } else if (mode === 'full') {
-        preview += '### Full Conversation\n\nFull conversation will be saved here.';
+        body = '### Full Conversation\n\nFull conversation will be saved here.';
       }
 
-      setChatPreviewContent(preview);
+      setChatPreviewContent(buildChatNoteContent({
+        title: chatTitle,
+        serviceLabel: service,
+        sourceUrl: pageInfo.url,
+        saved,
+        mode,
+        markdown: body
+      }));
     }
   }, [mode, isOnChatPage, pageInfo.url, title, messageCount]);
 

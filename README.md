@@ -121,10 +121,21 @@ Geminiでは、コードブロック上部の操作列にObsidian保存ボタン
 
 ## 保存されるMarkdown形式
 
-既定のノートテンプレートは `# {title}\n\n{content}` です。本文には取得モードに応じたメッセージがMarkdownとして入ります。
+既定のファイル名は `{title}_{YYYY-MM-DD}.md` です。保存先プリセットでサービス別を選ぶと、たとえば `ChatVault/ChatGPT/Obsidian拡張の保存仕様相談_2026-05-09.md` のように保存されます。
+
+既定のノートテンプレートは frontmatter、見出し、本文の順です。本文には取得モードに応じたメッセージがMarkdownとして入ります。
 
 ````markdown
-# AI Chat - 2026-05-06
+---
+title: "Obsidian拡張の保存仕様相談"
+date: 2026-05-09
+saved: "2026-05-09T10:30:00.000Z"
+service: "ChatGPT"
+source: "https://chatgpt.com/c/example"
+type: "full"
+---
+
+# Obsidian拡張の保存仕様相談
 
 ### User
 ここにユーザーの質問が入ります。
@@ -143,7 +154,7 @@ function example() {
 $$E = mc^2$$
 ````
 
-Markdownテンプレートでは `{title} {url} {date} {saved} {service} {type} {content}` を利用できます。`{content}` を含まないテンプレートは保存時に既定テンプレートへ戻します。
+Markdownテンプレートでは `{title} {url} {date} {saved} {service} {type} {content}` を利用できます。frontmatter向けには YAML クォート済みの `{yamlTitle} {yamlUrl} {yamlSaved} {yamlService} {yamlType}` も利用できます。`{content}` を含まないテンプレートは保存時に既定テンプレートへ戻します。
 
 ## HTML→Markdown変換機能
 

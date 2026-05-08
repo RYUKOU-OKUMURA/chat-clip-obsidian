@@ -1,5 +1,8 @@
 import { sanitizeForFilename, sanitizeRelativePath } from '../data/validation.js';
+import { formatLocalDateString } from './date.js';
 import { getServiceLabel, normalizeChatMode } from './formatting.js';
+
+export { formatLocalDateString } from './date.js';
 
 export const SETTINGS_VERSION = 2;
 
@@ -114,13 +117,10 @@ export function buildChatSavePath({
 }) {
   const serviceLabel = getServiceLabel(service);
   const normalizedMode = normalizeChatMode(mode);
-  const savedDate = savedAt instanceof Date ? savedAt : new Date(savedAt);
-  const dateStr = Number.isNaN(savedDate.getTime())
-    ? new Date().toISOString().split('T')[0]
-    : savedDate.toISOString().split('T')[0];
-  const noteTitle = title || `${serviceLabel} Chat - ${dateStr}`;
+  const dateStr = formatLocalDateString(savedAt);
+  const noteTitle = title || `${serviceLabel} Chat`;
   const sanitizedTitle = sanitizeForFilename(noteTitle, 'untitled');
-  const filename = `${dateStr}_${sanitizedTitle}.md`;
+  const filename = `${sanitizedTitle}_${dateStr}.md`;
   const isCodeBlock = contentKind === CODE_BLOCK_CONTENT_KIND;
   const location = isCodeBlock
     ? resolveCodeBlockSaveLocationSettings(settings)

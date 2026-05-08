@@ -19,8 +19,8 @@ describe('chat save path utilities', () => {
     });
 
     expect(path.folderPath).toBe('');
-    expect(path.filename).toBe('2026-05-02_Research_Notes.md');
-    expect(path.fullFilePath).toBe('2026-05-02_Research_Notes.md');
+    expect(path.filename).toBe('Research_Notes_2026-05-02.md');
+    expect(path.fullFilePath).toBe('Research_Notes_2026-05-02.md');
     expect(path.saveLocationPreset).toBe(SAVE_LOCATION_PRESETS.VAULT_ROOT);
   });
 
@@ -34,7 +34,7 @@ describe('chat save path utilities', () => {
     });
 
     expect(path.folderPath).toBe('ChatVault/ChatGPT');
-    expect(path.fullFilePath).toBe('ChatVault/ChatGPT/2026-05-02_Research_Notes.md');
+    expect(path.fullFilePath).toBe('ChatVault/ChatGPT/Research_Notes_2026-05-02.md');
   });
 
   test('keeps legacy chatFolderPath while flagging it', () => {
@@ -50,7 +50,7 @@ describe('chat save path utilities', () => {
     expect(detectLegacySaveLocationSettings(settings)).toBe(true);
     expect(path.legacySettingsDetected).toBe(true);
     expect(path.folderPath).toBe('ChatVault/ChatGPT/A-B_Test');
-    expect(path.fullFilePath).toBe('ChatVault/ChatGPT/A-B_Test/2026-05-02_A-B_Test.md');
+    expect(path.fullFilePath).toBe('ChatVault/ChatGPT/A-B_Test/A-B_Test_2026-05-02.md');
   });
 
   test('sanitizes custom folders and filenames', () => {
@@ -67,7 +67,7 @@ describe('chat save path utilities', () => {
     });
 
     expect(path.folderPath).toBe('Notes/Claude/recent');
-    expect(path.filename).toBe('2026-05-02_Bad-Name-_test.md');
+    expect(path.filename).toBe('Bad-Name-_test_2026-05-02.md');
   });
 
   test('unknown preset falls back to vault root', () => {
@@ -104,8 +104,8 @@ describe('chat save path utilities', () => {
       language: 'js'
     });
 
-    expect(chatPath.fullFilePath).toBe('ChatVault/ChatGPT/2026-05-02_Research_Notes.md');
-    expect(codePath.fullFilePath).toBe('ChatVault/CodeBlocks/ChatGPT/js/2026-05-02_Research_Notes.md');
+    expect(chatPath.fullFilePath).toBe('ChatVault/ChatGPT/Research_Notes_2026-05-02.md');
+    expect(codePath.fullFilePath).toBe('ChatVault/CodeBlocks/ChatGPT/js/Research_Notes_2026-05-02.md');
     expect(codePath.codeBlockFolderPathExplicit).toBe(true);
   });
 

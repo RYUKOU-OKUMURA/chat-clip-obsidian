@@ -107,7 +107,7 @@ npm run build:firefox
 ### 4. Obsidian連携
 - `obsidian://new` URIでノート作成
 - URI長すぎる場合はクリップボード経由でフォールバック
-- フォルダ構造: `LLM Chats/{service}/{YYYY-MM-DD}_{title}.md`
+- フォルダ構造: `LLM Chats/{service}/{title}_{YYYY-MM-DD}.md`
 
 ## 開発のベストプラクティス
 

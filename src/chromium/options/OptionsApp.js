@@ -757,7 +757,7 @@ const OptionsApp = () => {
               </div>
 
               <div>
-                <FieldLabel htmlFor="chatNoteFormat" help="標準はタイトルの直後に本文だけを保存します。">
+                <FieldLabel htmlFor="chatNoteFormat" help="標準はfrontmatter、タイトル、本文の順で保存します。">
                   チャットノートフォーマット
                 </FieldLabel>
                 <div className="flex flex-wrap gap-2 my-2">
@@ -769,7 +769,7 @@ const OptionsApp = () => {
                     }}
                     className="px-3 py-1 bg-indigo-600 hover:bg-indigo-700 text-white text-sm rounded-lg"
                   >
-                    タイトル+本文
+                    標準形式
                   </button>
                   <button
                     type="button"

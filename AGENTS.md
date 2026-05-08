@@ -95,7 +95,7 @@ npm run build:chromium
 ### 4. Obsidian連携
 - File System Access APIでVaultへ直接Markdownを書き込み
 - 失敗時は `obsidian://new?...&clipboard=true`、短文 `content=` URI、Downloads APIの順にfallback
-- フォルダ構造: `ChatVault/{service}/{YYYY-MM-DD}_{title}.md`
+- フォルダ構造: `ChatVault/{service}/{title}_{YYYY-MM-DD}.md`
 
 ## 開発のベストプラクティス
 
