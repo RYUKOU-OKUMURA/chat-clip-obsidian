@@ -48,7 +48,7 @@ Chat Clip Obsidianは、Web版生成AIチャットサービスの会話を効率
 
 1. **リポジトリをクローン**:
 ```bash
-git clone https://github.com/yourusername/chat-clip-obsidian.git
+git clone https://github.com/RYUKOU-OKUMURA/chat-clip-obsidian.git
 cd chat-clip-obsidian
 ```
 
